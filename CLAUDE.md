@@ -52,6 +52,10 @@ Use them. Don't try to do everything in the main thread. Each subagent has its o
 3. Write a short summary of: what changed, what was tested, any spec ambiguities encountered, any TODOs left.
 4. Wait for my review before moving to the next phase.
 
+## CHANGELOG.md rule
+
+`CHANGELOG.md` entries land **only when behaviour visible to a user changes** — new commands, new file formats, schema validation, error messages, anything an end user installing the released version would observe. Phases that ship purely internal infrastructure (tooling, refactors, dev-only test fixtures) **do not** get a CHANGELOG entry; the rationale lives in the phase commit body. Do not re-litigate this per phase. When in doubt, ask: "would a user installing this version notice this?" If no, no entry.
+
 ## On the relationship between dev-time and production-time `.claude/`
 
 This repository's `.claude/` directory contains **dev-time** subagents and commands — for building Remory.
