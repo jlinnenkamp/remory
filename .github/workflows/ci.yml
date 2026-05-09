@@ -43,6 +43,12 @@ jobs:
       - name: Tests
         run: uv run --python ${{ matrix.python-version }} pytest
 
+      - name: Tests (real CLI, opt-in)
+        if: env.REMORY_REAL_CLI == '1'
+        env:
+          REMORY_REAL_CLI: '1'
+        run: uv run --python ${{ matrix.python-version }} pytest -m real_cli -ra
+
   pre-commit:
     name: pre-commit (backstop)
     runs-on: ubuntu-latest

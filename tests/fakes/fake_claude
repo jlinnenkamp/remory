@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""Fake `claude` CLI for integration tests.
+
+This script is the SUBPROCESS-only fake. It is placed first on PATH for
+integration tests and accepts the same flags as the real ``claude`` CLI.
+Behaviour is steered by environment variables -- see the implementer plan
+for the matrix of ``$FAKE_CLAUDE_MODE`` values.
+
+Per the layering rule (tests/fakes/__init__.py), this script imports only
+``encode_cwd_for_claude`` from the ``remory`` package. No other imports
+from the package; subprocess fidelity must traverse a real fork/exec
+boundary.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import sys
+import time
+from pathlib import Path
+
+from remory.transcripts import encode_cwd_for_claude
+
+_CANNED_ENVELOPE = {
+    "type": "result",
+    "subtype": "success",
+    "is_error": False,
+    "result": "ok",
+    "session_id": "fake-session-0001",
+    "duration_ms": 42,
+    "num_turns": 1,
+    "stop_reason": "end_turn",
+}
+
+
+def _dump_argv_if_requested(argv: list[str]) -> None:
+    dump_path = os.environ.get("FAKE_CLAUDE_ARGV_DUMP")
+    if not dump_path:
+        return
+    Path(dump_path).write_text(
+        "\n".join(argv) + ("\n" if argv else ""),
+        encoding="utf-8",
+    )
+
+
+def _emit_version_and_exit() -> int:
+    sys.stdout.write("fake-claude 0.0.1\n")
+    return 0
+
+
+def _run_headless() -> int:
+    mode = os.environ.get("FAKE_CLAUDE_MODE", "success")
+
+    if mode == "success":
+        sys.stdout.write(json.dumps(_CANNED_ENVELOPE) + "\n")
+        return 0
+    if mode == "success_text":
+        env = dict(_CANNED_ENVELOPE)
+        env["result"] = os.environ.get("FAKE_CLAUDE_TEXT", "ok")
+        sys.stdout.write(json.dumps(env) + "\n")
+        return 0
+    if mode == "malformed_json":
+        sys.stdout.write("not json {\n")
+        return 0
+    if mode == "nonzero_exit":
+        sys.stdout.write(json.dumps(_CANNED_ENVELOPE) + "\n")
+        return int(os.environ.get("FAKE_CLAUDE_EXIT_CODE", "1"))
+    if mode == "hang":
+        time.sleep(int(os.environ.get("FAKE_CLAUDE_HANG_SECONDS", "9999")))
+        return 0
+    if mode == "is_error_envelope":
+        env = dict(_CANNED_ENVELOPE)
+        env["is_error"] = True
+        env["result"] = os.environ.get("FAKE_CLAUDE_TEXT", "auth failed")
+        sys.stdout.write(json.dumps(env) + "\n")
+        return 0
+
+    sys.stderr.write(f"fake_claude: unknown FAKE_CLAUDE_MODE={mode!r}\n")
+    return 2
+
+
+def _run_interactive(argv: list[str]) -> int:
+    if os.environ.get("FAKE_CLAUDE_INTERACTIVE_FAIL") == "1":
+        return 1
+    if os.environ.get("FAKE_CLAUDE_EXPECT_RESUME") == "1" and "--resume" not in argv:
+        sys.stderr.write("fake_claude: expected --resume but it was not provided\n")
+        return 2
+
+    session_id = os.environ.get("FAKE_CLAUDE_SESSION_ID", "fake-session-0001")
+    home_root = os.environ.get("FAKE_CLAUDE_HOME") or str(Path.home() / ".claude")
+    encoded = encode_cwd_for_claude(Path.cwd())
+    project_dir = Path(home_root) / "projects" / encoded
+    project_dir.mkdir(parents=True, exist_ok=True)
+    dest = project_dir / f"{session_id}.jsonl"
+
+    src = os.environ.get("FAKE_CLAUDE_TRANSCRIPT_FILE")
+    if src:
+        src_path = Path(src)
+        if not src_path.exists() or src_path.stat().st_size == 0:
+            sys.stderr.write(f"fake_claude: transcript file {src} missing or empty\n")
+            return 1
+        shutil.copyfile(src_path, dest)
+        return 0
+
+    user_event = {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": "hello"}],
+        },
+        "uuid": "00000000-0000-0000-0000-000000000001",
+        "timestamp": "2026-05-09T09:30:00.000Z",
+        "sessionId": session_id,
+        "isSidechain": False,
+    }
+    assistant_event = {
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "hi there"}],
+        },
+        "uuid": "00000000-0000-0000-0000-000000000002",
+        "timestamp": "2026-05-09T09:30:01.000Z",
+        "sessionId": session_id,
+        "isSidechain": False,
+    }
+    dest.write_text(
+        json.dumps(user_event) + "\n" + json.dumps(assistant_event) + "\n",
+        encoding="utf-8",
+    )
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    _dump_argv_if_requested(argv)
+
+    if "--version" in argv:
+        return _emit_version_and_exit()
+
+    if "-p" in argv:
+        return _run_headless()
+
+    return _run_interactive(argv)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

@@ -60,3 +60,6 @@ strict = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+    "real_cli: integration test that invokes the real `claude` CLI; opt-in via REMORY_REAL_CLI=1.",
+]
