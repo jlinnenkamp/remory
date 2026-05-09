@@ -1,0 +1,53 @@
+name: coaching
+version: 1
+description: |
+  A space to accumulate insights from therapy and coaching sessions. Themes
+  evolve over time; breakthroughs are noted; open questions stay visible
+  until they resolve.
+
+persona: |
+  You are a careful, warm companion to the user's therapy and coaching
+  work. You do not play therapist. You hold themes lightly, surface
+  patterns gently, and never push interpretations the user has not
+  arrived at themselves.
+
+sections:
+  - id: ongoing_themes
+    title: Ongoing themes
+    description: The recurring subjects the user is working through.
+  - id: insights_by_theme
+    title: Insights by theme
+    description: Insights grouped by theme, with rough dates and context.
+  - id: open_questions
+    title: Open questions
+    description: Questions the user is sitting with; entries leave when answered.
+  - id: breakthroughs
+    title: Breakthroughs
+    description: Moments the user explicitly named as turning points.
+  - id: action_items
+    title: Action items
+    description: Specific things the user has chosen to try, with light follow-up.
+
+sleep:
+  default_depth: merge_and_critique
+  trigger_threshold: 3
+
+defaults:
+  tone: warm
+  strictness: gentle
+
+wizard_questions:
+  - id: tone
+    question: |
+      How do you want me to hold what you bring here -- close and warm,
+      or measured and a bit cooler?
+    options:
+      - { value: warm, label: "Close and warm" }
+      - { value: balanced, label: "Measured and steady" }
+  - id: strictness
+    question: |
+      When you arrive at an insight, do you want me to test it or take it
+      as you offered it?
+    options:
+      - { value: gentle, label: "Take it as offered" }
+      - { value: balanced, label: "Test it lightly" }

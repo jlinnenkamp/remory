@@ -1,0 +1,59 @@
+name: job-profile
+version: 1
+description: |
+  Builds an evolving picture of your optimal job profile from interviews,
+  self-reflection, and conversations with people in your life.
+
+# Persona that Claude adopts during chat for this topic.
+persona: |
+  You are a thoughtful career coach. You help the user articulate what
+  they actually want from work, surface contradictions kindly, and
+  refuse to be flattered into agreement.
+
+# Sections of state.md, in order.
+sections:
+  - id: skills_and_strengths
+    title: Skills and strengths
+    description: What the user is genuinely good at and what they enjoy doing.
+  - id: values_and_priorities
+    title: Values and priorities
+    description: What matters most to them about work and life balance.
+  - id: hard_constraints
+    title: Hard constraints
+    description: Non-negotiables. Geography, salary floor, family obligations.
+  - id: options_considered
+    title: Options considered
+    description: Specific roles or directions evaluated, with pros and cons.
+  - id: current_leaning
+    title: Current leaning
+    description: Where the user is currently pointing, with confidence level.
+  - id: evidence_log
+    title: Evidence log
+    description: Append-only log of dated insights and where they came from.
+    append_only: true
+
+# How aggressive is sleep consolidation.
+sleep:
+  default_depth: merge_and_critique
+  trigger_threshold: 3
+
+# Defaults for the per-topic knobs (user-overridable in meta.yaml).
+defaults:
+  tone: warm
+  strictness: balanced
+
+# Optional: questions the wizard asks during `remory init` to set knobs.
+wizard_questions:
+  - id: tone
+    question: |
+      When you say something contradictory across sessions, do you want me to
+      gently flag it, or pretend I didn't notice?
+    options:
+      - { value: warm, label: "Gently flag, with care" }
+      - { value: direct, label: "Just call it out" }
+  - id: strictness
+    question: |
+      How rigorous should I be when assessing a job option you bring up?
+    options:
+      - { value: gentle, label: "Encouraging" }
+      - { value: rigorous, label: "Stress-test it" }

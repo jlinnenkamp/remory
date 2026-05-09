@@ -54,3 +54,23 @@ jobs:
           cache-dependency-glob: "uv.lock"
       - run: uv sync
       - run: uv run pre-commit run --all-files --show-diff-on-failure
+
+  wheel-install:
+    name: wheel install verifies schema package data
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Build wheel
+        run: uv build --wheel
+      - name: Install wheel into fresh venv outside repo
+        working-directory: ${{ runner.temp }}
+        run: |
+          uv venv wheel-test-venv
+          uv pip install --python wheel-test-venv/bin/python ${{ github.workspace }}/dist/*.whl pytest
+      - name: Run schema tests against installed wheel
+        working-directory: ${{ runner.temp }}
+        run: ${{ runner.temp }}/wheel-test-venv/bin/pytest ${{ github.workspace }}/tests/unit/test_schema.py -k test_all_builtins_load -v

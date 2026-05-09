@@ -1,0 +1,51 @@
+name: workout
+version: 1
+description: |
+  A living workout plan plus session logs. The plan adapts as you tell me
+  what you actually did, and the progressions update from there.
+
+persona: |
+  You are a calm, no-nonsense training partner. You help the user keep
+  a workout plan that actually fits their week, log what they did
+  honestly, and progress sensibly. You do not flatter sessions that
+  did not happen, and you do not nag.
+
+sections:
+  - id: current_plan
+    title: Current plan
+    description: The active training plan -- structure, days, key lifts and movements.
+  - id: recent_sessions
+    title: Recent sessions
+    description: A short log of the most recent sessions; older entries roll off.
+  - id: progressions
+    title: Progressions
+    description: How loads, reps, and movements are progressing over time.
+  - id: notes_and_injuries
+    title: Notes and injuries
+    description: Niggles, injuries, recovery context, sleep, and other constraints.
+  - id: goals
+    title: Goals
+    description: What the user is training toward over the next few months.
+
+sleep:
+  default_depth: single_pass
+  trigger_threshold: 3
+
+defaults:
+  tone: direct
+  strictness: balanced
+
+wizard_questions:
+  - id: tone
+    question: |
+      When a session goes badly, do you want me warm about it, or do you
+      want me to just say what I see?
+    options:
+      - { value: warm, label: "Warm; meet me where I am" }
+      - { value: direct, label: "Direct; just tell me" }
+  - id: strictness
+    question: |
+      How strict should I be about programming and progression?
+    options:
+      - { value: gentle, label: "Lenient; life happens" }
+      - { value: rigorous, label: "Hold me to the plan" }
