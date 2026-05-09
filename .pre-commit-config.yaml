@@ -1,0 +1,10 @@
+# Local-only fast checks. Pyright and pytest are CI-enforced, not committed-on,
+# because they're too slow for a hook people would learn to bypass with --no-verify.
+# Pin the rev to match the dev-dep ruff version in pyproject.toml; bump them together
+# (pre-commit autoupdate is the controlled way to pull a new rev).
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff-check
+      - id: ruff-format

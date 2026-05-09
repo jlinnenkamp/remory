@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: ${{ matrix.os }} / py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync (with dev deps)
+        run: uv sync --python ${{ matrix.python-version }}
+
+      - name: Lint
+        run: uv run --python ${{ matrix.python-version }} ruff check
+
+      - name: Format check
+        run: uv run --python ${{ matrix.python-version }} ruff format --check
+
+      - name: Type check
+        run: uv run --python ${{ matrix.python-version }} pyright
+
+      - name: Tests
+        run: uv run --python ${{ matrix.python-version }} pytest
+
+  pre-commit:
+    name: pre-commit (backstop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv sync
+      - run: uv run pre-commit run --all-files --show-diff-on-failure

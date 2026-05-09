@@ -1,8 +1,10 @@
 [project]
 name = "remory"
 version = "0.1.0"
-description = "Add your description here"
+description = "A second brain that actually remembers."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
     { name = "jens", email = "63923335+Linnk-GitHub@users.noreply.github.com" }
 ]
@@ -26,8 +28,35 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.0",
     "pyright>=1.1.409",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.12",
+    "ruff==0.15.12",
 ]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.format]
+# Defaults: double quotes, 4-space indent, trailing commas where safe.
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+# Strictness deliberately split: src/ is strict; tests/ inherits the basic top-level mode.
+# `strict` is a path/glob list (the pyright-native way to scope strictness); the
+# executionEnvironments construct does not carry typeCheckingMode in this pyright version.
+# Strict mode on test fixtures and fakes generates noise that obscures real signal
+# (Mocks, dynamically-typed fixtures, parametrize indirection).
+strict = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
