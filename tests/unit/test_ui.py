@@ -13,6 +13,7 @@ from remory.ui import (
     TopicsRow,
     is_narrow,
     is_tty,
+    prompt_line,
     render_doctor_report,
     render_sleep_summary,
     render_topics_table,
@@ -203,3 +204,25 @@ def test_render_topics_table_aligns_columns_with_headers() -> None:
     out = render_topics_table(rows)
     assert "topic" in out and "schema" in out and "pending" in out
     assert "workout" in out
+
+
+# ---------------------------------------------------------------------------
+# prompt_line — raw read, no .strip()
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_line_preserves_leading_and_trailing_whitespace() -> None:
+    """Plan §7: prompt_line is the no-strip read so the wizard's validators
+    can see embedded newlines / surrounding whitespace. Wrapping the test seam
+    in a lambda lets us assert byte-equal that the input bytes pass through.
+    """
+    raw = "  Sam with surrounding spaces  "
+    captured = prompt_line("name? ", input_fn=lambda: raw)
+    assert captured == raw
+
+
+def test_prompt_line_returns_empty_string_for_empty_input() -> None:
+    """Empty input from input_fn returns empty string (validator decides
+    what 'empty' means)."""
+    captured = prompt_line("> ", input_fn=lambda: "")
+    assert captured == ""

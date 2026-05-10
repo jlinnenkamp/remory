@@ -1,18 +1,25 @@
-"""``remory init`` — Phase 4 non-interactive stub.
+"""``remory init`` — non-interactive stub for the ``--schema`` path.
 
-Behaviour matrix (consolidated plan §3.9):
+Phase 5 splits ``remory init`` into two shapes:
 
-* ``--schema`` missing → R2 wording, exit 2 (raised as
-  :class:`NotImplementedError` by :func:`remory.wizard.run_wizard`; the
-  CLI maps it to exit 2 here).
+* ``remory init`` (no args) → routed by the CLI to the interactive
+  wizard (``remory.wizard.run_wizard``).
+* ``remory init <name> --schema <schema>`` → this stub.
+
+This module only owns the second shape. The CLI checks the empty-args
+case before delegating here. Behaviour matrix:
+
+* ``--schema`` missing → :class:`WizardRedirectError` with the R2
+  refresh wording (R3); CLI maps to exit 2.
 * ``--schema`` unknown → ``SchemaError`` with a ``difflib``-derived
   "Did you mean" hint when there's a close match.
 * Topic name invalid → ``ValueError`` from
-  :func:`remory.paths._validate_topic_name`; CLI maps to exit 2.
+  :func:`remory.paths.validate_topic_name`; CLI maps to exit 2.
 * Topic exists already → :class:`TopicExistsError` (D7), exit 1.
 * Otherwise: create ``data_dir``, ``topics_dir``, ``topic_dir`` (under
   the topic lock), write ``meta.yaml`` (with schema defaults for knobs),
-  ``state.md`` skeleton, and a 3-line ``CLAUDE.md`` placeholder.
+  ``state.md`` skeleton, and a 3-line ``CLAUDE.md`` placeholder
+  (shared with the wizard via :data:`remory.templates.CLAUDE_MD_PLACEHOLDER`).
 
 Reads default knob values from the schema's ``defaults`` block. Does
 not write ``about-me.md`` (wizard-only).
@@ -33,8 +40,9 @@ from remory.locking import topic_lock
 from remory.paths import validate_topic_name
 from remory.schema import BUILTIN_NAMES, SchemaError, load_builtin
 from remory.state import StateDoc, StateFrontmatter, StateSection, write_state
+from remory.templates import CLAUDE_MD_PLACEHOLDER
 from remory.topic import Knobs, TopicMeta, write_meta
-from remory.wizard import WIZARD_NOT_BUILT_MESSAGE, WizardNotBuiltError
+from remory.wizard import WIZARD_REDIRECT_MESSAGE, WizardRedirectError
 
 __all__ = ["run_init"]
 
@@ -47,19 +55,6 @@ def _suggest_schema(name: str) -> str | None:
     return matches[0] if matches else None
 
 
-def _claude_md_placeholder(schema_name: str) -> str:
-    """Three-line CLAUDE.md placeholder per the plan §3.9.
-
-    Phase 6 ships the real generator; until then this is a friendly
-    stub so the topic directory is shaped consistently.
-    """
-    return (
-        f"# Topic: {schema_name}\n"
-        "Do not edit state.md. It is updated only during sleep.\n"
-        "See state.md for the canonical context for this topic.\n"
-    )
-
-
 def run_init(*, topic_name: str, schema_name: str | None) -> None:
     """Create a new topic directory from a built-in schema.
 
@@ -67,16 +62,20 @@ def run_init(*, topic_name: str, schema_name: str | None) -> None:
         topic_name: the topic directory name; validated via
             :func:`remory.paths._validate_topic_name`.
         schema_name: must be in :data:`remory.schema.BUILTIN_NAMES` for
-            the Phase 4 stub. ``None`` raises :class:`WizardNotBuiltError`.
+            the non-interactive path. ``None`` raises
+            :class:`WizardRedirectError` (alias :class:`WizardNotBuiltError`).
 
     Raises:
-        WizardNotBuiltError: when ``schema_name`` is None.
+        WizardRedirectError: when ``schema_name`` is None (for the
+            ``remory init <name>`` shape with no flags). The CLI
+            handles ``remory init`` (no args) before reaching us; we
+            only see this branch when the caller forgot ``--schema``.
         ValueError: when ``topic_name`` fails validation.
         SchemaError: when ``schema_name`` is unknown.
         TopicExistsError: when the topic directory already exists.
     """
     if schema_name is None:
-        raise WizardNotBuiltError(WIZARD_NOT_BUILT_MESSAGE)
+        raise WizardRedirectError(WIZARD_REDIRECT_MESSAGE)
 
     # Validate topic name early — pure path validation, no I/O.
     validate_topic_name(topic_name)
@@ -142,7 +141,10 @@ def run_init(*, topic_name: str, schema_name: str | None) -> None:
     with topic_lock(topic_dir, timeout=0.0):
         write_meta(topic_dir, meta)
         write_state(paths.state_file(topic_dir), state_doc)
-        atomic_write_text(paths.claude_md_file(topic_dir), _claude_md_placeholder(schema_name))
+        atomic_write_text(
+            paths.claude_md_file(topic_dir),
+            CLAUDE_MD_PLACEHOLDER.format(schema_name=schema_name),
+        )
 
     sys.stdout.write(
         f"Topic '{topic_name}' created from schema '{schema_name}'.\n"

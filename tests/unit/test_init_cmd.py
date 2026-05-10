@@ -14,7 +14,7 @@ from remory.locking import is_locked
 from remory.schema import SchemaError
 from remory.state import read_state
 from remory.topic import read_meta
-from remory.wizard import WizardNotBuiltError
+from remory.wizard import WizardRedirectError
 
 
 @pytest.fixture
@@ -31,17 +31,24 @@ def isolated_xdg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Pa
 # ---------------------------------------------------------------------------
 
 
-def test_run_init_without_schema_raises_wizard_not_built_with_r2_wording(
+def test_run_init_without_schema_raises_wizard_redirect_with_new_r3_wording(
     isolated_xdg: Path,
 ) -> None:
+    """R3 refresh: the Phase 4 'isn't built yet' wording is replaced; the
+    new message redirects users to either ``--schema`` or the no-args
+    wizard. ``WizardNotBuiltError`` remains as a one-release alias.
+    """
     del isolated_xdg
-    with pytest.raises(WizardNotBuiltError) as ei:
+    with pytest.raises(WizardRedirectError) as ei:
         run_init(topic_name="workout", schema_name=None)
     msg = str(ei.value)
-    assert "interactive wizard isn't built yet" in msg
+    assert "Pass --schema to pick a built-in directly" in msg
     assert "--schema job-profile" in msg
     assert "--schema workout" in msg
     assert "--schema coaching" in msg
+    assert "remory init`" in msg or "remory init " in msg
+    # Phase 4 phrasing is gone.
+    assert "isn't built yet" not in msg
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ from pathlib import Path
 import platformdirs
 
 __all__ = [
+    "about_me_file",
     "backups_dir",
     "claude_md_file",
     "config_dir",
@@ -151,3 +152,13 @@ def review_file(topic_dir: Path) -> Path:
 def claude_md_file(topic_dir: Path) -> Path:
     """Return ``<topic_dir>/CLAUDE.md``."""
     return topic_dir / "CLAUDE.md"
+
+
+def about_me_file(data_dir: Path) -> Path:
+    """Return ``<data_dir>/about-me.md`` (Phase 5 wizard output).
+
+    Lives at the data-directory root, not under any topic. Carries the
+    wizard's letter paragraph plus a short YAML facts block (name,
+    topics chosen, wish). The user can edit it freely.
+    """
+    return data_dir / "about-me.md"

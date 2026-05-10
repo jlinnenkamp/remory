@@ -33,7 +33,14 @@ from remory.sleep.merge import MergeError
 from remory.sleep.orchestrator import SleepError
 from remory.state import StateParseError
 from remory.topic import TopicMetaError
-from remory.wizard import WizardNotBuiltError
+from remory.wizard import (
+    WizardAboutMeError,
+    WizardCommitPartialError,
+    WizardNotBuiltError,
+    WizardRedirectError,
+    WizardSigintDuringCommitError,
+    WizardThreeStrikesError,
+)
 
 
 @pytest.fixture
@@ -91,17 +98,45 @@ def test_format_error_topic_exists_returns_pinned_three_line_d7_wording_and_exit
     assert "remory init <other>" in msg
 
 
-def test_format_error_wizard_not_built_returns_r2_wording_and_exit_2(
+def test_format_error_wizard_redirect_returns_r3_wording_and_exit_2(
     data_dir: Path,
 ) -> None:
-    exc = WizardNotBuiltError(
-        "The interactive wizard isn't built yet. For now, pass --schema to pick a\n"
-        "built-in: --schema job-profile, --schema workout, or --schema coaching."
+    """R3 refresh: WizardRedirectError carries the new wording. The Phase
+    4 ``WizardNotBuiltError`` is preserved as a one-release alias and is
+    isinstance-checked the same way (they're the same class now).
+    """
+    exc = WizardRedirectError(
+        "Pass --schema to pick a built-in directly (--schema job-profile, "
+        "--schema workout, --schema coaching), or run `remory init` with no "
+        "arguments for the interactive wizard."
     )
     msg, code = format_error(exc, data_dir=data_dir)
     assert code == 2
-    assert "interactive wizard isn't built yet" in msg
+    assert "Pass --schema to pick a built-in directly" in msg
     assert "--schema job-profile" in msg
+    # The "no arguments" tail varies on whitespace (line break vs. space)
+    # depending on how the caller composed the message; the substring
+    # check ignores that.
+    assert "arguments for the interactive wizard" in msg
+
+
+def test_format_error_wizard_not_built_alias_still_routes_to_exit_2(
+    data_dir: Path,
+) -> None:
+    """``WizardNotBuiltError`` is a deprecated alias for
+    ``WizardRedirectError``; callers that imported the Phase 4 name
+    should keep getting exit 2 with the new R3 wording. Stray strings
+    passed by callers are ignored — format_error always emits the
+    canonical WIZARD_REDIRECT_MESSAGE so a future caller can't leak.
+    """
+    exc = WizardNotBuiltError("anything-the-caller-passes")
+    msg, code = format_error(exc, data_dir=data_dir)
+    assert code == 2
+    # Stray caller string is not leaked to the user.
+    assert "anything-the-caller-passes" not in msg
+    # The canonical R3 wording is what the user sees.
+    assert "Pass --schema to pick a built-in directly" in msg
+    assert "arguments for the interactive wizard" in msg
 
 
 def test_format_error_critique_error_is_contract_reminder_returns_zero_exit_code(
@@ -292,3 +327,59 @@ def test_format_error_unknown_exception_returns_unexpected_phrasing_and_exit_99(
     msg, code = format_error(Weird("???"), data_dir=data_dir)
     assert code == 99
     assert "Something unexpected went wrong" in msg
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 wizard-specific rows
+# ---------------------------------------------------------------------------
+
+
+def test_format_error_maps_wizard_three_strikes_to_locked_message_exit_2(
+    data_dir: Path,
+) -> None:
+    """Per consolidated plan §7: the three-strikes message is locked text."""
+    msg, code = format_error(WizardThreeStrikesError("3x"), data_dir=data_dir)
+    assert code == 2
+    assert "Three tries — let's stop here. Run remory init again when you're ready." in msg
+
+
+def test_format_error_maps_wizard_sigint_during_commit_to_mid_write_message_exit_130(
+    data_dir: Path,
+) -> None:
+    msg, code = format_error(WizardSigintDuringCommitError("ki at workout"), data_dir=data_dir)
+    assert code == 130
+    assert "Stopped mid-write." in msg
+    assert "Run remory doctor to inspect" in msg
+
+
+def test_format_error_maps_wizard_commit_partial_with_prior_topic_to_two_topic_message_exit_1(
+    data_dir: Path,
+) -> None:
+    """ADR 0003 leave-as-is wording when one prior topic completed."""
+    exc = WizardCommitPartialError(failed_topic="workout", prior_topic="job-profile")
+    msg, code = format_error(exc, data_dir=data_dir)
+    assert code == 1
+    assert "Stopped mid-write at topic 'workout'." in msg
+    assert "Topic 'job-profile' was created" in msg
+    assert "remory init workout to" in msg
+
+
+def test_format_error_maps_wizard_commit_partial_with_no_prior_to_no_prior_message_exit_1(
+    data_dir: Path,
+) -> None:
+    exc = WizardCommitPartialError(failed_topic="workout", prior_topic=None)
+    msg, code = format_error(exc, data_dir=data_dir)
+    assert code == 1
+    assert "Stopped mid-write at topic 'workout'." in msg
+    # No "was created successfully" clause when no prior topic.
+    assert "was created" not in msg
+    assert "remory init workout" in msg
+
+
+def test_format_error_maps_wizard_about_me_error_to_topics_created_message_exit_1(
+    data_dir: Path,
+) -> None:
+    msg, code = format_error(WizardAboutMeError("disk"), data_dir=data_dir)
+    assert code == 1
+    assert "All topics created, but about-me.md couldn't be written." in msg
+    assert "Run remory doctor." in msg

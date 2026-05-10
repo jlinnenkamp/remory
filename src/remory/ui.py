@@ -41,6 +41,7 @@ __all__ = [
     "print_sleep_summary",
     "print_topics_table",
     "prompt_choice",
+    "prompt_line",
     "prompt_text",
     "use_color",
 ]
@@ -398,6 +399,32 @@ def prompt_text(
 
         line = cast("Callable[[], str]", input_fn)()
     return line.strip()
+
+
+def prompt_line(
+    prompt: str,
+    *,
+    console: Console | None = None,
+    input_fn: object | None = None,
+) -> str:
+    """Read one raw line from stdin without stripping.
+
+    Returns the line as ``input()`` returns it (no trailing newline,
+    no ``.strip()``). Wizard validators check newline presence — they
+    can't be applied after ``.strip()``. Use this when the validator
+    cares about whitespace or embedded newlines (Phase 5 wizard);
+    use :func:`prompt_text` for the simple stripped form.
+
+    ``input_fn`` is a test seam (default ``builtins.input``).
+    """
+    c = console if console is not None else make_console()
+    c.out(prompt, end="")
+    if input_fn is None:
+        return input()
+    from collections.abc import Callable
+    from typing import cast
+
+    return cast("Callable[[], str]", input_fn)()
 
 
 def prompt_choice(

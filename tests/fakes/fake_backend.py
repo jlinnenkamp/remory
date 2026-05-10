@@ -11,8 +11,10 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from remory.backends.base import (
+    BackendError,
     BackendInvocationError,
     ChatResult,
+    HeadlessMeta,
     HeadlessResult,
     HealthReport,
 )
@@ -99,3 +101,56 @@ class FakeBackend:
                 ),
             ),
         )
+
+    @classmethod
+    def with_letter_text(cls, text: str) -> FakeBackend:
+        """Build a FakeBackend whose first ``headless`` returns ``text``.
+
+        Convenience for the Phase 5 wizard letter-step tests. The
+        resulting backend yields a :class:`HeadlessResult` with the
+        supplied text and otherwise-canned diagnostic fields. Wizard
+        callers don't depend on session_id / duration_ms / etc., so
+        the values here are placeholders.
+        """
+        return cls(
+            headless_results=(
+                HeadlessResult(
+                    text=text,
+                    session_id="fake-letter-session",
+                    duration_ms=1,
+                    num_turns=1,
+                    stop_reason="end_turn",
+                    meta=HeadlessMeta(raw_envelope=None),
+                ),
+            ),
+        )
+
+    @classmethod
+    def with_letter_failure(
+        cls,
+        exc_class: type[BackendError],
+        *,
+        message: str = "forced failure for test",
+        exit_code: int | None = None,
+        stderr_tail: str | None = None,
+    ) -> FakeBackend:
+        """Build a FakeBackend whose first ``headless`` raises ``exc_class(...)``.
+
+        Convenience for the Phase 5 wizard letter-step tests covering
+        the D1 fallback path. ``exc_class`` may be any
+        :class:`BackendError` subclass; ``message`` is the
+        first-positional argument. For
+        :class:`BackendInvocationError` callers can supply
+        ``exit_code`` and ``stderr_tail``; the kwargs are silently
+        ignored for other subclasses (the ``BackendError`` base only
+        takes a message).
+        """
+        if exc_class is BackendInvocationError:
+            exc: BackendError = BackendInvocationError(
+                message,
+                exit_code=exit_code,
+                stderr_tail=stderr_tail,
+            )
+        else:
+            exc = exc_class(message)
+        return cls(headless_results=(exc,))

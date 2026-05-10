@@ -42,7 +42,14 @@ from remory.sleep.merge import MergeError
 from remory.sleep.orchestrator import SleepError
 from remory.state import StateParseError
 from remory.topic import TopicMetaError
-from remory.wizard import WizardNotBuiltError
+from remory.wizard import (
+    WIZARD_REDIRECT_MESSAGE,
+    WizardAboutMeError,
+    WizardCommitPartialError,
+    WizardRedirectError,
+    WizardSigintDuringCommitError,
+    WizardThreeStrikesError,
+)
 
 __all__ = [
     "TopicExistsError",
@@ -125,9 +132,53 @@ def format_error(exc: BaseException, *, data_dir: Path) -> tuple[str, int]:
     """
     logs = _logs_path(data_dir)
 
-    # Wizard stub (R2 wording) --------------------------------------------
-    if isinstance(exc, WizardNotBuiltError):
-        return f"{exc!s}\n", 2
+    # Wizard redirect (R3 wording; alias WizardNotBuiltError preserved) ---
+    # Note: WizardNotBuiltError is an alias for WizardRedirectError per
+    # R3, so a single isinstance check covers both names. The user-visible
+    # text is always WIZARD_REDIRECT_MESSAGE; we ignore exc.args so a
+    # caller passing a stray string can't leak it to the user.
+    if isinstance(exc, WizardRedirectError):
+        return f"{WIZARD_REDIRECT_MESSAGE}\n", 2
+
+    # Wizard 3-strikes — per-question bail (consolidated plan §7) ---------
+    if isinstance(exc, WizardThreeStrikesError):
+        return (
+            "Three tries — let's stop here. Run remory init again when you're ready.\n",
+            2,
+        )
+
+    # Wizard SIGINT during COMMIT (consolidated plan §3.8) ----------------
+    # In-flight write completes; subsequent files were not written. The
+    # message is the locked "Stopped mid-write…" wording, exit 130.
+    if isinstance(exc, WizardSigintDuringCommitError):
+        return (
+            "Stopped mid-write. Some files may exist. Run remory doctor to inspect.\n",
+            130,
+        )
+
+    # Wizard COMMIT partial-failure (ADR 0003) ----------------------------
+    if isinstance(exc, WizardCommitPartialError):
+        if exc.prior_topic is not None:
+            msg = (
+                f"Stopped mid-write at topic '{exc.failed_topic}'. Topic "
+                f"'{exc.prior_topic}' was created\nsuccessfully. Run remory "
+                f"doctor to inspect, or remory init {exc.failed_topic} to\n"
+                "retry the failed topic.\n"
+            )
+        else:
+            msg = (
+                f"Stopped mid-write at topic '{exc.failed_topic}'. Run "
+                f"remory doctor to inspect, or\nremory init {exc.failed_topic} "
+                "to retry the failed topic.\n"
+            )
+        return msg, 1
+
+    # Wizard about-me failure (consolidated plan §8) ----------------------
+    if isinstance(exc, WizardAboutMeError):
+        return (
+            "All topics created, but about-me.md couldn't be written. Run remory doctor.\n",
+            1,
+        )
 
     # Path validation (init) — ValueError from _validate_topic_name -------
     if isinstance(exc, ValueError) and "topic name" in str(exc):

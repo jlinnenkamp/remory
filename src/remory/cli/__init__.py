@@ -23,7 +23,7 @@ import typer
 
 from remory import config as cfgmod
 from remory import paths
-from remory.cli.errors import format_error
+from remory.cli.errors import TopicExistsError, format_error
 from remory.commands import (
     chat_cmd,
     doctor_cmd,
@@ -44,6 +44,11 @@ from remory.commands import (
     review_cmd as review_cmd_mod,
 )
 from remory.logging_setup import configure as configure_logging
+from remory.wizard import (
+    WIZARD_REDIRECT_MESSAGE,
+    WizardRedirectError,
+    run_wizard,
+)
 
 __all__ = ["app", "main"]
 
@@ -134,14 +139,53 @@ def root(
 
 @app.command("init")
 def cmd_init(
-    topic_name: Annotated[str, typer.Argument(help="Topic name (lowercase, kebab/snake).")],
+    topic_name: Annotated[
+        str | None,
+        typer.Argument(help="Topic name (lowercase, kebab/snake). Omit for the wizard."),
+    ] = None,
     schema: Annotated[
         str | None,
         typer.Option("--schema", help="Built-in schema: job-profile, workout, coaching."),
     ] = None,
 ) -> None:
-    """Create a new topic from a built-in schema."""
+    """Create a new topic.
+
+    Three shapes (R3 dispatch order, binding):
+
+    * ``remory init`` — interactive wizard (no args).
+    * ``remory init <name> --schema <schema>`` — non-interactive stub.
+    * ``remory init <name>`` — error: pass ``--schema`` or run with no
+      args. **Existing-topic check fires first** so a typo'd existing
+      topic name produces D7 "already exists" guidance, not an
+      R3 redirect.
+    """
     try:
+        # Empty args → wizard. The orchestrator owns the data-dir
+        # resolution, the interview, and the COMMIT block.
+        if topic_name is None and schema is None:
+            run_wizard()
+            return
+
+        if topic_name is None:
+            # ``--schema`` given without a topic name. Typer makes
+            # the argument optional, but logically we need a name.
+            sys.stderr.write(
+                "remory init: --schema requires a topic name.\n"
+                "Try `remory init <name> --schema <schema>` "
+                "or `remory init` for the wizard.\n"
+            )
+            raise typer.Exit(code=2)
+
+        # R3 dispatch order: existing-topic check FIRST so a typo'd
+        # name doesn't redirect through the wizard message.
+        eff_data_dir = _resolve_data_dir_or_exit()
+        target = eff_data_dir / "topics" / topic_name
+        if target.exists():
+            raise TopicExistsError(name=topic_name, topic_dir=target)
+
+        if schema is None:
+            raise WizardRedirectError(WIZARD_REDIRECT_MESSAGE)
+
         init_cmd.run_init(topic_name=topic_name, schema_name=schema)
     except (KeyboardInterrupt, Exception) as exc:
         _emit_and_exit(exc)
