@@ -7,9 +7,17 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+
+from remory.locking import topic_lock
+from remory.raw import RawFrontmatter, RawSource, RawStatus, write_raw
+from remory.schema import load_builtin
+from remory.state import StateDoc, StateFrontmatter, StateSection, write_state
+from remory.topic import Knobs, TopicMeta, write_meta
 
 # Belt-and-suspenders: even if pytest's collection patterns drift, we don't
 # want pytest trying to collect the standalone subprocess script.
@@ -129,3 +137,113 @@ def multi_process_lock_holder() -> Iterator[Callable[[Path], subprocess.Popen[st
     finally:
         for proc in spawned:
             _cleanup_holder(proc)
+
+
+# ---------------------------------------------------------------------------
+# Sleep-pipeline-shared fixtures (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SeededTopic:
+    """Result of the :data:`seeded_topic` fixture.
+
+    Carries the topic directory, the schema name, and the list of pending
+    raw entry paths in the order they were written. Tests that need finer
+    control can read the files back via :func:`remory.raw.read_raw`.
+    """
+
+    topic_dir: Path
+    schema_name: str
+    pending_paths: tuple[Path, ...]
+
+
+def _seed_topic(
+    *,
+    base_dir: Path,
+    schema_name: str,
+    pending_count: int,
+    seed_state: bool,
+    knobs: Knobs | None = None,
+) -> SeededTopic:
+    schema = load_builtin(schema_name)
+    topic_dir = base_dir / schema_name
+    topic_dir.mkdir(parents=True, exist_ok=True)
+    effective_knobs = knobs or Knobs(
+        tone=schema.defaults.tone, strictness=schema.defaults.strictness
+    )
+    meta = TopicMeta(
+        schema=schema_name,
+        schema_version=schema.version,
+        created=datetime(2026, 5, 1, 10, 0, tzinfo=UTC),
+        last_consolidated=None,
+        last_chat=None,
+        pending_count=pending_count,
+        total_entries=pending_count,
+        knobs=effective_knobs,
+    )
+    pending_paths: list[Path] = []
+    with topic_lock(topic_dir):
+        write_meta(topic_dir, meta)
+        if seed_state:
+            doc = StateDoc(
+                frontmatter=StateFrontmatter(
+                    schema=schema_name,
+                    schema_version=schema.version,
+                    last_consolidated=None,
+                    entries_consolidated=0,
+                ),
+                sections=[StateSection(title=s.title, body="\n") for s in schema.sections],
+            )
+            write_state(topic_dir / "state.md", doc)
+        # Pending raw entries with deterministic, ascending timestamps.
+        base_when = datetime(2026, 5, 9, 9, 0, tzinfo=UTC)
+        for i in range(pending_count):
+            when = base_when + timedelta(minutes=i * 10)
+            fm = RawFrontmatter(
+                created=when,
+                source=RawSource.CHAT,
+                status=RawStatus.PENDING,
+                session_id=f"sess-{i:03d}",
+            )
+            pending_paths.append(write_raw(topic_dir, frontmatter=fm, body=f"raw entry {i}"))
+    return SeededTopic(
+        topic_dir=topic_dir,
+        schema_name=schema_name,
+        pending_paths=tuple(pending_paths),
+    )
+
+
+@pytest.fixture
+def seeded_topic_factory(
+    tmp_path: Path,
+) -> Callable[..., SeededTopic]:
+    """Factory fixture: build a topic dir with meta.yaml, state.md, and N pending raws.
+
+    Parameters: ``schema_name`` (default "job-profile"), ``pending_count``
+    (default 2), ``seed_state`` (default True), ``knobs`` (default schema
+    defaults). Returns a :class:`SeededTopic`.
+    """
+
+    def factory(
+        *,
+        schema_name: str = "job-profile",
+        pending_count: int = 2,
+        seed_state: bool = True,
+        knobs: Knobs | None = None,
+    ) -> SeededTopic:
+        return _seed_topic(
+            base_dir=tmp_path,
+            schema_name=schema_name,
+            pending_count=pending_count,
+            seed_state=seed_state,
+            knobs=knobs,
+        )
+
+    return factory
+
+
+@pytest.fixture
+def seeded_topic(seeded_topic_factory: Callable[..., SeededTopic]) -> SeededTopic:
+    """Default seeded topic: job-profile, 2 pending raws, seeded state.md."""
+    return seeded_topic_factory()

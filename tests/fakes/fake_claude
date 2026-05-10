@@ -50,6 +50,53 @@ def _emit_version_and_exit() -> int:
     return 0
 
 
+def _run_scripted() -> int:
+    """Per-call scripted response mode.
+
+    ``FAKE_CLAUDE_SCRIPT_FILE`` -- JSON file containing a list of strings;
+    each string is the ``result`` value the fake will return for that
+    invocation (wrapped in an envelope). Counter persists across re-execs
+    via ``FAKE_CLAUDE_SCRIPT_COUNTER_FILE``.
+
+    Used by the Phase 3 sleep integration tests where one sleep run produces
+    multiple distinct headless calls (extract, merges, critique).
+    """
+    script_path = os.environ.get("FAKE_CLAUDE_SCRIPT_FILE")
+    counter_path = os.environ.get("FAKE_CLAUDE_SCRIPT_COUNTER_FILE")
+    if not script_path or not counter_path:
+        sys.stderr.write(
+            "fake_claude: scripted mode requires FAKE_CLAUDE_SCRIPT_FILE and "
+            "FAKE_CLAUDE_SCRIPT_COUNTER_FILE\n"
+        )
+        return 2
+    try:
+        responses_raw = json.loads(Path(script_path).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        sys.stderr.write(f"fake_claude: cannot read script file {script_path}: {exc}\n")
+        return 2
+    if not isinstance(responses_raw, list):
+        sys.stderr.write("fake_claude: script file must contain a JSON list\n")
+        return 2
+
+    cf = Path(counter_path)
+    try:
+        counter = int(cf.read_text(encoding="utf-8")) if cf.exists() else 0
+    except (OSError, ValueError):
+        counter = 0
+    if counter >= len(responses_raw):
+        sys.stderr.write(
+            f"fake_claude: script exhausted (counter={counter}, len={len(responses_raw)})\n"
+        )
+        return 2
+    text = str(responses_raw[counter])
+    cf.write_text(str(counter + 1), encoding="utf-8")
+
+    env = dict(_CANNED_ENVELOPE)
+    env["result"] = text
+    sys.stdout.write(json.dumps(env) + "\n")
+    return 0
+
+
 def _run_headless() -> int:
     mode = os.environ.get("FAKE_CLAUDE_MODE", "success")
 
@@ -61,6 +108,8 @@ def _run_headless() -> int:
         env["result"] = os.environ.get("FAKE_CLAUDE_TEXT", "ok")
         sys.stdout.write(json.dumps(env) + "\n")
         return 0
+    if mode == "scripted":
+        return _run_scripted()
     if mode == "malformed_json":
         sys.stdout.write("not json {\n")
         return 0
