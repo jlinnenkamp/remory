@@ -140,12 +140,18 @@ def test_run_doctor_clean_run_emits_r7_defaults_no_config_toml_found_line(
 
 
 def test_run_doctor_classifies_login_stderr_as_fail_with_locked_remediation(
-    isolated_xdg: Path, capsys: pytest.CaptureFixture[str]
+    isolated_xdg: Path,
+    fake_claude_on_path: tuple[Path],
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """R5 + D9 — auth-keyword classifier produces the locked verbatim
     'Sleep will retry 9 times before failing if you skip this.' line.
+
+    Requires ``fake_claude_on_path`` so the binary check passes — otherwise
+    the auth probe is SKIPped and the FakeBackend's stderr never gets
+    classified. CI does not have a real ``claude`` on PATH.
     """
-    del isolated_xdg
+    del isolated_xdg, fake_claude_on_path
     backend = FakeBackend.with_auth_failure(stderr_tail="please login to continue")
     with pytest.raises(typer.Exit):
         run_doctor(strict=False, probe_real_cli=False, backend_factory=lambda: backend)
