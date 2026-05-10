@@ -38,6 +38,7 @@ __all__ = [
     "StateParseError",
     "StateSchemaMismatchError",
     "StateSection",
+    "is_canonical",
     "read_state",
     "render_state",
     "validate_state",
@@ -269,6 +270,21 @@ def write_state(path: Path, doc: StateDoc) -> None:
     """
     assert is_locked(path.parent), "write_state requires the topic lock"
     atomic_write_text(path, render_state(doc))
+
+
+def is_canonical(path: Path) -> bool:
+    """Return True iff ``path`` is byte-equal to ``render_state(read_state(path))``.
+
+    Used by the Phase 4 doctor's ``--strict`` check to flag hand-edited
+    ``state.md`` files whose YAML frontmatter (key order, datetime
+    formatting, quoting) would be re-formatted on the next sleep. The
+    helper performs no I/O beyond reading ``path``; it does NOT modify
+    the file. Returns ``False`` if the file is unparseable (parse errors
+    propagate; doctor handles via separate parse check).
+    """
+    expected = render_state(read_state(path))
+    actual = path.read_text(encoding="utf-8")
+    return expected == actual
 
 
 def validate_state(doc: StateDoc, schema: Schema) -> None:

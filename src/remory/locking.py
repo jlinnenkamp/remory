@@ -45,7 +45,15 @@ class LockError(Exception):
 
 
 class LockBusyError(LockError):
-    """The lock could not be acquired (held by another process, or in-process re-entry)."""
+    """The lock could not be acquired (held by another process, or in-process re-entry).
+
+    Carries ``topic_name`` so the CLI surface can render a clean lead sentence
+    without parsing the message string.
+    """
+
+    def __init__(self, message: str, *, topic_name: str | None = None) -> None:
+        super().__init__(message)
+        self.topic_name = topic_name
 
 
 @dataclass
@@ -139,7 +147,8 @@ def _topic_lock_impl(topic_dir: Path, *, timeout: float) -> Generator[LockHandle
     resolved_key = (os.getpid(), str(topic_dir.resolve()))
     if resolved_key in _held:
         raise LockBusyError(
-            f"topic {topic_dir.name} is already locked in this process (non-reentrant)"
+            f"topic {topic_dir.name} is already locked in this process (non-reentrant)",
+            topic_name=topic_dir.name,
         )
 
     lock_path = topic_dir / ".lock"
@@ -149,7 +158,10 @@ def _topic_lock_impl(topic_dir: Path, *, timeout: float) -> Generator[LockHandle
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
-                raise LockBusyError(f"topic {topic_dir.name} is locked") from exc
+                raise LockBusyError(
+                    f"topic {topic_dir.name} is locked",
+                    topic_name=topic_dir.name,
+                ) from exc
         else:
             deadline = time.monotonic() + timeout
             while True:
@@ -158,7 +170,10 @@ def _topic_lock_impl(topic_dir: Path, *, timeout: float) -> Generator[LockHandle
                     break
                 except BlockingIOError as exc:
                     if time.monotonic() >= deadline:
-                        raise LockBusyError(f"timeout acquiring lock on {topic_dir.name}") from exc
+                        raise LockBusyError(
+                            f"timeout acquiring lock on {topic_dir.name}",
+                            topic_name=topic_dir.name,
+                        ) from exc
                     time.sleep(0.05)
 
         _held.add(resolved_key)

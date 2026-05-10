@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from remory.backends.base import (
+    BackendInvocationError,
     ChatResult,
     HeadlessResult,
     HealthReport,
@@ -78,3 +79,23 @@ class FakeBackend:
                 "FakeBackend.health_check called without a configured health_report"
             )
         return self._health_report
+
+    @classmethod
+    def with_auth_failure(cls, *, stderr_tail: str) -> FakeBackend:
+        """Build a FakeBackend whose first ``headless`` raises an auth-shaped error.
+
+        Convenience for the Phase 4 doctor's auth-probe classification
+        tests. The resulting backend raises
+        :class:`BackendInvocationError` with the supplied
+        ``stderr_tail`` (so the doctor's substring-matching auth-probe
+        can classify it as FAIL or WARN depending on keywords).
+        """
+        return cls(
+            headless_results=(
+                BackendInvocationError(
+                    "claude exited with code 1",
+                    exit_code=1,
+                    stderr_tail=stderr_tail,
+                ),
+            ),
+        )

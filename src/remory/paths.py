@@ -37,6 +37,7 @@ __all__ = [
     "state_file",
     "topic_dir",
     "topics_dir",
+    "validate_topic_name",
 ]
 
 # Topic names: lowercase ASCII letters, digits, ``-``, ``_``; must start with
@@ -45,7 +46,7 @@ __all__ = [
 _TOPIC_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
-def _validate_topic_name(name: str) -> None:
+def validate_topic_name(name: str) -> None:
     """Reject names that would be unsafe or non-portable on disk.
 
     Raises:
@@ -63,6 +64,11 @@ def _validate_topic_name(name: str) -> None:
             f"topic name {name!r} must match {_TOPIC_NAME_RE.pattern!r} "
             "(lowercase ASCII, digits, '-', '_'; must start with letter or digit)"
         )
+
+
+# Backward-compat alias for callers that imported the private form
+# (Phase 1a). New callers should prefer the public name.
+_validate_topic_name = validate_topic_name
 
 
 def data_dir() -> Path:

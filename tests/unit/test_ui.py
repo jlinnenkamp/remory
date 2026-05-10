@@ -1,0 +1,205 @@
+"""Tests for :mod:`remory.ui` — TTY detection, doctor rendering, R4 sleep note."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from remory.sleep.orchestrator import SleepResult, SleepStatus
+from remory.ui import (
+    CheckResult,
+    CheckStatus,
+    TopicsRow,
+    is_narrow,
+    is_tty,
+    render_doctor_report,
+    render_sleep_summary,
+    render_topics_table,
+    use_color,
+)
+
+# ---------------------------------------------------------------------------
+# Detection helpers
+# ---------------------------------------------------------------------------
+
+
+def test_is_narrow_returns_true_for_columns_below_60() -> None:
+    assert is_narrow(columns=40) is True
+
+
+def test_is_narrow_returns_false_for_columns_at_or_above_60() -> None:
+    assert is_narrow(columns=60) is False
+    assert is_narrow(columns=120) is False
+
+
+def test_is_tty_returns_false_for_string_io_stream() -> None:
+    import io
+
+    assert is_tty(io.StringIO()) is False
+
+
+def test_use_color_returns_false_when_no_color_env_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    import io
+
+    assert use_color(stream=io.StringIO()) is False
+
+
+# ---------------------------------------------------------------------------
+# Doctor report rendering
+# ---------------------------------------------------------------------------
+
+
+def test_render_doctor_report_clean_run_footer_says_youre_good() -> None:
+    rows = [
+        CheckResult(id="data_dir", status=CheckStatus.OK, label="data_dir", detail="/x"),
+        CheckResult(id="config", status=CheckStatus.OK, label="config", detail="defaults"),
+        CheckResult(
+            id="claude_binary",
+            status=CheckStatus.OK,
+            label="claude binary",
+            detail="/usr/bin/claude",
+        ),
+    ]
+    out = render_doctor_report(results=rows, color=False)
+    assert "3 checks, 0 warnings, 0 failures. You're good." in out
+
+
+def test_render_doctor_report_includes_remediation_indented_with_arrow() -> None:
+    rows = [
+        CheckResult(
+            id="claude_auth",
+            status=CheckStatus.FAIL,
+            label="claude auth",
+            detail="not logged in",
+            remediation=("run `claude` once interactively to log in.",),
+        ),
+    ]
+    out = render_doctor_report(results=rows, color=False)
+    assert "-> run `claude` once interactively to log in." in out
+
+
+def test_render_doctor_report_footer_count_matches_rows_shown() -> None:
+    """D9 reconciliation: footer says "5 checks" not "3" when 5 rows render."""
+    rows = [
+        CheckResult(
+            id=f"row{i}",
+            status=CheckStatus.OK,
+            label=f"row{i}",
+            detail=f"d{i}",
+        )
+        for i in range(5)
+    ]
+    out = render_doctor_report(results=rows, color=False)
+    assert "5 checks" in out
+
+
+def test_render_doctor_report_uses_lowercase_glyphs_when_color_false() -> None:
+    rows = [
+        CheckResult(id="a", status=CheckStatus.OK, label="a", detail="d"),
+    ]
+    out = render_doctor_report(results=rows, color=False)
+    # ASCII fallback uses lowercase 'ok' / 'warn' / 'fail'.
+    assert "ok" in out
+    assert "OK ✓" not in out
+
+
+# ---------------------------------------------------------------------------
+# R4 — locked sleep-output critique-skip note
+# ---------------------------------------------------------------------------
+
+
+def test_print_sleep_summary_success_with_warnings_critique_skip_renders_locked_note() -> None:
+    """R4 (locked verbatim) — when SUCCESS_WITH_WARNINGS and critique
+    failed (review_path is None), sleep output ends with the italic note.
+    """
+    result = SleepResult(
+        status=SleepStatus.SUCCESS_WITH_WARNINGS,
+        topic_name="workout",
+        run_id="2026-05-09-093000",
+        backup_path=None,
+        review_path=None,
+        consolidated_count=1,
+        section_outcomes=(),
+        notes=("critique failed: backend output empty",),
+    )
+    out = render_sleep_summary(result)
+    # Verbatim per R4 — do not edit without updating consolidated plan §5.
+    assert (
+        "note: critique step couldn't run; state.md is up to date but _review.md\nwasn't refreshed."
+    ) in out
+
+
+def test_render_sleep_summary_success_renders_consolidated_count() -> None:
+    result = SleepResult(
+        status=SleepStatus.SUCCESS,
+        topic_name="workout",
+        run_id="run-1",
+        backup_path=Path("/tmp/.bak"),
+        review_path=Path("/tmp/_review.md"),
+        consolidated_count=3,
+        section_outcomes=(),
+        notes=(),
+    )
+    out = render_sleep_summary(result)
+    assert "Consolidated 3 pending entries" in out
+    assert "/tmp/.bak" in out
+    assert "/tmp/_review.md" in out
+
+
+def test_render_sleep_summary_no_pending_emits_nothing_to_do_line() -> None:
+    result = SleepResult(
+        status=SleepStatus.NO_PENDING,
+        topic_name="workout",
+        run_id="run-1",
+        backup_path=None,
+        review_path=None,
+        consolidated_count=0,
+        section_outcomes=(),
+        notes=(),
+    )
+    out = render_sleep_summary(result)
+    assert "Nothing pending" in out
+
+
+def test_render_sleep_summary_emits_drift_note_with_note_prefix() -> None:
+    result = SleepResult(
+        status=SleepStatus.SUCCESS_WITH_WARNINGS,
+        topic_name="workout",
+        run_id="run-1",
+        backup_path=None,
+        review_path=Path("/tmp/_review.md"),
+        consolidated_count=1,
+        section_outcomes=(),
+        notes=("dropped drift section 'Notes' (not in schema; see logs)",),
+    )
+    out = render_sleep_summary(result)
+    assert "note: dropped drift section 'Notes'" in out
+
+
+# ---------------------------------------------------------------------------
+# Topics table rendering
+# ---------------------------------------------------------------------------
+
+
+def test_render_topics_table_emits_no_topics_yet_when_rows_empty() -> None:
+    out = render_topics_table([])
+    assert "No topics yet" in out
+
+
+def test_render_topics_table_aligns_columns_with_headers() -> None:
+    rows = [
+        TopicsRow(
+            name="workout",
+            schema_name="workout",
+            pending=2,
+            last_chat="2026-05-09T09:00:00+00:00",
+            last_consolidated="—",
+        ),
+    ]
+    out = render_topics_table(rows)
+    assert "topic" in out and "schema" in out and "pending" in out
+    assert "workout" in out
