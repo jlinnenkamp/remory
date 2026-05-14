@@ -152,12 +152,17 @@ def _deferred_sigint() -> Generator[None]:
 def _build_meta(answers: WizardAnswers, topic_name: str, schema: Schema) -> TopicMeta:
     """Build :class:`TopicMeta` from answers + schema for one topic.
 
-    Knobs come from ``answers.knobs_by_topic[topic_name]`` if the user
-    provided them, else from the schema's defaults.
+    Knobs come from ``answers.knobs_by_topic[topic_name]`` (Pydantic
+    :class:`remory.wizard._answers.WizardKnobs`) if the user provided
+    them, else from the schema's defaults.
     """
-    user_knobs = answers.knobs_by_topic.get(topic_name, {})
-    tone_raw = user_knobs.get("tone") or schema.defaults.tone
-    strictness_raw = user_knobs.get("strictness") or schema.defaults.strictness
+    user_knobs = answers.knobs_by_topic.get(topic_name)
+    if user_knobs is None:
+        tone_raw: str = schema.defaults.tone
+        strictness_raw: str = schema.defaults.strictness
+    else:
+        tone_raw = user_knobs.tone
+        strictness_raw = user_knobs.strictness
     # The Pydantic model validates against the Literal sets; mypy/pyright
     # narrow correctly because ``Knobs`` itself enforces the literal.
     knobs = Knobs.model_validate({"tone": tone_raw, "strictness": strictness_raw})

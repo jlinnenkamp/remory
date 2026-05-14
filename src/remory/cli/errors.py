@@ -46,10 +46,12 @@ from remory.wizard import (
     WIZARD_REDIRECT_MESSAGE,
     WizardAboutMeError,
     WizardCommitPartialError,
+    WizardPreflightError,
     WizardRedirectError,
     WizardSigintDuringCommitError,
-    WizardThreeStrikesError,
+    WizardSubagentFailedError,
 )
+from remory.wizard import _strings as _wizard_strings
 
 __all__ = [
     "TopicExistsError",
@@ -140,12 +142,25 @@ def format_error(exc: BaseException, *, data_dir: Path) -> tuple[str, int]:
     if isinstance(exc, WizardRedirectError):
         return f"{WIZARD_REDIRECT_MESSAGE}\n", 2
 
-    # Wizard 3-strikes — per-question bail (consolidated plan §7) ---------
-    if isinstance(exc, WizardThreeStrikesError):
-        return (
-            "Three tries — let's stop here. Run remory init again when you're ready.\n",
-            2,
-        )
+    # Wizard preflight failure (Phase 6 D2) ------------------------------
+    # Either the claude binary is missing or auth probe failed. The
+    # message points at `remory doctor` so the user can fix the
+    # precondition; exit 2 is the same code other usage errors use.
+    if isinstance(exc, WizardPreflightError):
+        return _wizard_strings.PRECONDITION_NEEDS_DOCTOR_MESSAGE, 2
+
+    # Wizard subagent failure (Phase 6 D2) -------------------------------
+    # The subagent exited non-zero or produced unparseable output twice.
+    # When a recovery dir is present, mention it; otherwise fall back to
+    # the locked pre-commit interrupt message (no files written).
+    if isinstance(exc, WizardSubagentFailedError):
+        recovery_dir = exc.recovery_dir
+        if recovery_dir is not None:
+            return (
+                _wizard_strings.RECOVERY_MESSAGE_TEMPLATE.format(recovery_dir=recovery_dir),
+                1,
+            )
+        return _wizard_strings.PRE_COMMIT_INTERRUPT_MESSAGE, 1
 
     # Wizard SIGINT during COMMIT (consolidated plan §3.8) ----------------
     # In-flight write completes; subsequent files were not written. The

@@ -22,6 +22,7 @@ from remory.wizard import (
     WizardAboutMeError,
     WizardAnswers,
     WizardCommitPartialError,
+    WizardKnobs,
     commit,
 )
 from remory.wizard import _commit as _commit_mod
@@ -43,14 +44,15 @@ def isolated_xdg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Pa
     yield tmp_path
 
 
-def _make_answers(topics: list[str], **knobs: dict[str, str]) -> WizardAnswers:
+def _make_answers(topics: list[str], **knobs: WizardKnobs) -> WizardAnswers:
     """Convenience: build a WizardAnswers with sensible knob defaults."""
-    knobs_by_topic: dict[str, dict[str, str]] = {}
+    knobs_by_topic: dict[str, WizardKnobs] = {}
     for t in topics:
-        knobs_by_topic[t] = knobs.get(t, {"tone": "warm", "strictness": "balanced"})
+        knobs_by_topic[t] = knobs.get(t, WizardKnobs(tone="warm", strictness="balanced"))
     return WizardAnswers(
+        version=1,
         name="Sam",
-        chosen_topics=topics,
+        chosen_topics=tuple(topics),
         knobs_by_topic=knobs_by_topic,
         wish="stop forgetting",
     )

@@ -44,8 +44,8 @@ class FakeBackend:
         self.headless_calls: list[dict[str, object]] = []
         self.chat_calls: list[dict[str, object]] = []
 
-    def chat(self, *, cwd: Path, resume: bool = False) -> ChatResult:
-        self.chat_calls.append({"cwd": cwd, "resume": resume})
+    def chat(self, *, cwd: Path, resume: bool = False, agent: str | None = None) -> ChatResult:
+        self.chat_calls.append({"cwd": cwd, "resume": resume, "agent": agent})
         if self._chat_result is None:
             raise AssertionError("FakeBackend.chat called without a configured chat_result")
         return self._chat_result

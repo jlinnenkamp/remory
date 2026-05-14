@@ -63,18 +63,24 @@ class ClaudeCodeBackend:
 
     # ------------------------------------------------------------------ chat
 
-    def chat(self, *, cwd: Path, resume: bool = False) -> ChatResult:
+    def chat(self, *, cwd: Path, resume: bool = False, agent: str | None = None) -> ChatResult:
         """Launch interactive ``claude`` session in ``cwd``, blocking until exit.
 
         ``resume=True`` passes ``--resume`` (the underlying ``claude`` flag);
         the user-facing remory flag is ``--continue``, but we use
         ``--resume`` here because that is what ``claude`` itself accepts.
+
+        ``agent`` selects a Claude Code subagent (e.g. ``"wizard"``).
+        Passes ``--agent <name>`` when set; ``None`` means no agent flag,
+        which is the chat_cmd default.
         """
         argv: list[str] = [self._binary]
+        if agent is not None:
+            argv.extend(["--agent", agent])
         if resume:
             argv.append("--resume")
 
-        _log.info("chat: argv=%r cwd=%s resume=%s", argv, cwd, resume)
+        _log.info("chat: argv=%r cwd=%s resume=%s agent=%s", argv, cwd, resume, agent)
 
         start = time.monotonic()
         try:

@@ -246,4 +246,6 @@ def test_run_chat_resume_flag_passes_through_to_backend(
         continue_session=True,
         backend_factory=lambda: backend,
     )
-    assert backend.chat_calls == [{"cwd": topic_dir, "resume": True}]
+    # Phase 6 added the agent kwarg; chat_cmd always passes agent=None
+    # (the wizard launch path is the only one passing agent="wizard").
+    assert backend.chat_calls == [{"cwd": topic_dir, "resume": True, "agent": None}]

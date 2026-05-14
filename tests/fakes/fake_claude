@@ -130,7 +130,84 @@ def _run_headless() -> int:
     return 2
 
 
+_WIZARD_DEFAULT_LETTER = (
+    "Hi there. You picked your topics and shared what you're hoping for. "
+    "I'll keep what you bring me here, and only what you bring me.\n"
+)
+
+
+def _run_wizard_interactive() -> int:
+    """Phase 6 wizard-subagent mode: write answers.json + letter.md.
+
+    Env contract (plan §12):
+      FAKE_CLAUDE_WIZARD_RUN_DIR  — absolute path; required.
+      FAKE_CLAUDE_WIZARD_ANSWERS  — JSON string written to answers.json.
+      FAKE_CLAUDE_WIZARD_LETTER   — string written to letter.md.
+      FAKE_CLAUDE_WIZARD_FAIL     — one of: preflight_exit_nonzero,
+                                    write_malformed_json_once,
+                                    write_malformed_json_twice,
+                                    missing_answers_file.
+
+    Invocation counter (for write_malformed_json_once) lives at
+    ``<FAKE_CLAUDE_WIZARD_RUN_DIR>/.fake_claude_invocations``.
+    """
+    run_dir_str = os.environ.get("FAKE_CLAUDE_WIZARD_RUN_DIR")
+    if not run_dir_str:
+        sys.stderr.write(
+            "fake_claude: wizard_interactive mode requires FAKE_CLAUDE_WIZARD_RUN_DIR\n"
+        )
+        return 2
+    run_dir = Path(run_dir_str)
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    fail_mode = os.environ.get("FAKE_CLAUDE_WIZARD_FAIL", "")
+
+    if fail_mode == "preflight_exit_nonzero":
+        return 1
+
+    # Determine invocation index (0-based).
+    counter_path = run_dir / ".fake_claude_invocations"
+    try:
+        invocation = int(counter_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        invocation = 0
+    counter_path.write_text(str(invocation + 1), encoding="utf-8")
+
+    answers_target = run_dir / "answers.json"
+    letter_target = run_dir / "letter.md"
+
+    letter_body = os.environ.get("FAKE_CLAUDE_WIZARD_LETTER", _WIZARD_DEFAULT_LETTER)
+
+    if fail_mode == "missing_answers_file":
+        letter_target.write_text(letter_body, encoding="utf-8")
+        return 0
+
+    if fail_mode == "write_malformed_json_twice":
+        answers_target.write_text("{not json", encoding="utf-8")
+        letter_target.write_text(letter_body, encoding="utf-8")
+        return 0
+
+    if fail_mode == "write_malformed_json_once" and invocation == 0:
+        answers_target.write_text("{not json", encoding="utf-8")
+        letter_target.write_text(letter_body, encoding="utf-8")
+        return 0
+
+    # Default / second-invocation success path.
+    answers_raw = os.environ.get("FAKE_CLAUDE_WIZARD_ANSWERS")
+    if not answers_raw:
+        sys.stderr.write(
+            "fake_claude: wizard_interactive mode requires FAKE_CLAUDE_WIZARD_ANSWERS\n"
+        )
+        return 2
+    answers_target.write_text(answers_raw, encoding="utf-8")
+    letter_target.write_text(letter_body, encoding="utf-8")
+    return 0
+
+
 def _run_interactive(argv: list[str]) -> int:
+    mode = os.environ.get("FAKE_CLAUDE_MODE", "")
+    if mode == "wizard_interactive":
+        return _run_wizard_interactive()
     if os.environ.get("FAKE_CLAUDE_INTERACTIVE_FAIL") == "1":
         return 1
     if os.environ.get("FAKE_CLAUDE_EXPECT_RESUME") == "1" and "--resume" not in argv:

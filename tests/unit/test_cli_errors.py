@@ -37,9 +37,10 @@ from remory.wizard import (
     WizardAboutMeError,
     WizardCommitPartialError,
     WizardNotBuiltError,
+    WizardPreflightError,
     WizardRedirectError,
     WizardSigintDuringCommitError,
-    WizardThreeStrikesError,
+    WizardSubagentFailedError,
 )
 
 
@@ -334,13 +335,28 @@ def test_format_error_unknown_exception_returns_unexpected_phrasing_and_exit_99(
 # ---------------------------------------------------------------------------
 
 
-def test_format_error_maps_wizard_three_strikes_to_locked_message_exit_2(
+def test_format_error_renders_wizard_preflight_error_with_doctor_pointer(
     data_dir: Path,
 ) -> None:
-    """Per consolidated plan §7: the three-strikes message is locked text."""
-    msg, code = format_error(WizardThreeStrikesError("3x"), data_dir=data_dir)
+    """Phase 6 D2: WizardPreflightError maps to the doctor pointer message + exit 2."""
+    msg, code = format_error(WizardPreflightError("binary not on PATH"), data_dir=data_dir)
     assert code == 2
-    assert "Three tries — let's stop here. Run remory init again when you're ready." in msg
+    assert "Remory needs the claude CLI to be installed and logged in" in msg
+    assert "Run: remory doctor" in msg
+    assert "Then re-run: remory init" in msg
+
+
+def test_format_error_renders_wizard_subagent_failed_with_recovery_dir(
+    tmp_path: Path,
+) -> None:
+    """Phase 6 D2: WizardSubagentFailedError with a recovery_dir surfaces the path."""
+    rec = tmp_path / ".remory" / "wizard-recovery" / "2026-05-14T10-00-00Z"
+    rec.mkdir(parents=True)
+    exc = WizardSubagentFailedError("two-strike parse fail", recovery_dir=rec)
+    msg, code = format_error(exc, data_dir=tmp_path)
+    assert code == 1
+    assert "wizard couldn't produce valid answers" in msg
+    assert str(rec) in msg
 
 
 def test_format_error_maps_wizard_sigint_during_commit_to_mid_write_message_exit_130(

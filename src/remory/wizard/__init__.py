@@ -1,53 +1,65 @@
-"""Remory's first-run wizard (Phase 5 implementation).
+"""Remory's first-run wizard.
 
 Public surface:
 
-- :class:`WizardAnswers` — accumulator dataclass.
-- :func:`run_wizard` — drive the interview and commit artefacts.
+- :class:`WizardAnswers` / :class:`WizardKnobs` — Pydantic wire-format
+  models for what the ``wizard.md`` subagent writes
+  (``answers.json``).
+- :func:`run_wizard` — drive the claude-driven interview and commit
+  artefacts.
 - :func:`commit` — atomic-batch write of all topic dirs +
   ``about-me.md``. Exposed for tests and for the rare advanced caller
   that wants to drive the answers programmatically.
 - Exception types raised from the wizard pipeline:
-  :class:`WizardRedirectError` (R3 wording — pass --schema or run with
-  no args), :class:`WizardThreeStrikesError` (per-question 3-strikes
-  bail), :class:`WizardCommitPartialError` (mid-COMMIT failure),
-  :class:`WizardAboutMeError` (about-me.md write failed after all
-  topics committed), :class:`WizardSigintDuringCommitError` (SIGINT
-  delivered during COMMIT).
+  :class:`WizardRedirectError` (the R3 "pass --schema" wording),
+  :class:`WizardPreflightError` (claude binary or auth not OK),
+  :class:`WizardAnswerParseError` (subagent output unparseable),
+  :class:`WizardSubagentFailedError` (subagent exit non-zero or two-
+  strike parse fail), :class:`WizardCommitPartialError` (mid-COMMIT
+  failure), :class:`WizardAboutMeError` (about-me.md write failed
+  after all topics committed), :class:`WizardSigintDuringCommitError`
+  (SIGINT delivered during COMMIT).
 - Backwards-compat aliases :class:`WizardNotBuiltError` /
   :data:`WIZARD_NOT_BUILT_MESSAGE` retained for one release; remove
   in v0.2 (R3 deprecation note).
 
-Phase 5 split this from a single ``wizard.py`` file into a package
-(``_orchestrator``, ``_steps``, ``_letter``, ``_commit``,
-``_validators``, ``_strings``, ``_answers``). The public surface is
-the same; new tests pin individual modules.
+Phase 6 rearchitected the wizard from Python-driven steps to a
+claude-driven subagent (``wizard.md``); :class:`WizardThreeStrikesError`
+and the underlying ``_steps.py`` / ``_letter.py`` / ``_validators.py``
+modules were removed.
 """
 
 from __future__ import annotations
 
 from typing import Final
 
-from remory.wizard._answers import WizardAnswers
+from remory.wizard._answers import WizardAnswers, WizardKnobs
 from remory.wizard._commit import (
     WizardAboutMeError,
     WizardCommitPartialError,
     WizardSigintDuringCommitError,
     commit,
 )
-from remory.wizard._orchestrator import run_wizard
-from remory.wizard._steps import WizardThreeStrikesError
+from remory.wizard._orchestrator import (
+    WizardPreflightError,
+    WizardSubagentFailedError,
+    run_wizard,
+)
+from remory.wizard._subagent import WizardAnswerParseError
 
 __all__ = [
     "WIZARD_NOT_BUILT_MESSAGE",
     "WIZARD_REDIRECT_MESSAGE",
     "WizardAboutMeError",
+    "WizardAnswerParseError",
     "WizardAnswers",
     "WizardCommitPartialError",
+    "WizardKnobs",
     "WizardNotBuiltError",
+    "WizardPreflightError",
     "WizardRedirectError",
     "WizardSigintDuringCommitError",
-    "WizardThreeStrikesError",
+    "WizardSubagentFailedError",
     "commit",
     "run_wizard",
 ]

@@ -535,18 +535,30 @@ Auto-generated at topic creation and on schema change. Contains:
 
 ## 11. The `remory init` wizard — the fun bit
 
-This is where the product earns its "warm and a little addictive" feel. The wizard runs as a single Claude Code session driven by the `wizard` subagent, with the harness orchestrating turns.
+This is where the product earns its "warm and a little addictive" feel. The wizard is a single Claude Code session driven by the `wizard` subagent. The Python harness handles three things only: making sure the session can actually run, validating what comes back, and writing files atomically when the session is done.
 
-Flow:
+### Preconditions
 
-1. **Greet by name.** Ask the user's name. Use it sparingly afterwards.
-2. **Pick topics.** Show the three built-ins with one-line descriptions. Multi-select.
-3. **For each chosen topic, run its `wizard_questions`.** Two or three short, personality-quiz style questions per topic. Map answers to `tone` and `strictness`.
-4. **Ask one cross-cutting question:** *"In one sentence — what are you hoping a second brain helps you do?"* Answer goes into `about-me.md`.
-5. **Write the letter.** The wizard generates a one-paragraph "letter from your second brain" that explains, in its own words, what it just learned about how the user wants to be talked to. This becomes the first content of `about-me.md`. It's also displayed back to the user.
-6. **Tell the user what's next.** A short "Try `remory chat workout` whenever you're ready" line.
+The wizard hard-requires `claude` on PATH and authenticated. If either fails the wizard refuses to launch and points the user at `remory doctor`. There is no offline fallback — the wizard's voice is the model's voice, and the model is the only voice that can do this step justice. No silent degradation.
 
-The whole flow takes 2–4 minutes. No skips, but every question has a "skip this for now" option that uses the schema default. The wizard never feels like a form.
+### Flow
+
+The harness:
+
+1. Verifies the `claude` binary and authentication via the same probes `remory doctor` uses. On failure, prints a single line pointing at `remory doctor` and exits non-zero. No files written.
+2. Materialises the bundled `.claude/` tree into the data directory if it has not been installed yet (idempotent first-time copy of `wizard.md`, the sleep subagents, slash commands, and `settings.json`).
+3. Stages a tempdir as the session's *run directory*, populates it with `manifest.json` and a `schemas/` directory containing the built-in topic schemas, then tells the wizard subagent (via its system prompt) where to find them.
+4. Launches `claude --agent wizard` with `cwd` set to the **data directory root**, not a topic directory. The cwd choice is load-bearing: the SessionEnd hook detects topic membership by cwd, so launching at the data-dir root keeps the wizard's transcript from being captured as a raw entry in any topic's `raw/`.
+
+The `wizard` subagent runs the conversation entirely. Six beats: greet by name, pick topics, run each chosen topic's `wizard_questions`, ask one cross-cutting wish question, write `answers.json` and `letter.md` to the run directory, say a short closing line. Tone is warm and a little playful; one question at a time; no menus. Skipping any question is fine — the schema's defaults carry the fallback values.
+
+After the session exits cleanly the harness:
+
+5. Validates `answers.json` against a Pydantic model (versioned `version: 1` wire format). If validation fails, the harness relaunches the subagent once with the validation error embedded in the resume prompt. A second failure dumps the raw output (whatever was written) to `<data_dir>/.remory/wizard-recovery/<timestamp>/` and aborts with a remediation pointer — nothing the user said disappears silently.
+6. Runs the COMMIT block: per-topic-atomic file writes (`meta.yaml`, `state.md`, `CLAUDE.md`) and the data-dir `about-me.md`. The COMMIT block is Python, runs under a deferred-SIGINT guard, and is the only writer of user-visible files. The per-topic-atomic contract is preserved verbatim from the prior implementation.
+7. Prints a short outro: where the data lives, the chosen topics, and "try `remory chat <topic>` whenever you're ready".
+
+The whole flow takes 2–4 minutes. Ctrl+C during the claude session ends it cleanly (claude handles the signal; the harness sees a non-zero exit and never enters COMMIT). Ctrl+C during COMMIT finishes the in-flight file and stops, surfacing partial state through `remory doctor` per the per-topic-atomic contract.
 
 ---
 
