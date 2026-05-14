@@ -18,8 +18,11 @@ case before delegating here. Behaviour matrix:
 * Topic exists already → :class:`TopicExistsError` (D7), exit 1.
 * Otherwise: create ``data_dir``, ``topics_dir``, ``topic_dir`` (under
   the topic lock), write ``meta.yaml`` (with schema defaults for knobs),
-  ``state.md`` skeleton, and a 3-line ``CLAUDE.md`` placeholder
-  (shared with the wizard via :data:`remory.templates.CLAUDE_MD_PLACEHOLDER`).
+  ``state.md`` skeleton, and the per-topic ``CLAUDE.md`` (rendered via
+  :func:`remory.topic_claude_md.render`). After topic creation, the
+  bundled ``.claude/`` tree is installed at the data dir via
+  :func:`remory.claude_assets.install_data_dir_templates` so the
+  SessionEnd / PreToolUse hooks fire on subsequent chats.
 
 Reads default knob values from the schema's ``defaults`` block. Does
 not write ``about-me.md`` (wizard-only).
@@ -33,14 +36,14 @@ import sys
 from datetime import UTC, datetime
 
 from remory import config as cfgmod
-from remory import paths
+from remory import paths, topic_claude_md
 from remory.atomic import atomic_write_text
+from remory.claude_assets import install_data_dir_templates
 from remory.cli.errors import TopicExistsError
 from remory.locking import topic_lock
 from remory.paths import validate_topic_name
 from remory.schema import BUILTIN_NAMES, SchemaError, load_builtin
 from remory.state import StateDoc, StateFrontmatter, StateSection, write_state
-from remory.templates import CLAUDE_MD_PLACEHOLDER
 from remory.topic import Knobs, TopicMeta, write_meta
 from remory.wizard import WIZARD_REDIRECT_MESSAGE, WizardRedirectError
 
@@ -138,13 +141,27 @@ def run_init(*, topic_name: str, schema_name: str | None) -> None:
         sections=[StateSection(title=section.title, body="\n") for section in schema.sections],
     )
 
+    # Phase 6: per-topic CLAUDE.md is now the real stamped + knobs-bearing
+    # template (plan §5.7); CLAUDE_MD_PLACEHOLDER stays exported as a
+    # deprecated alias on remory.templates for one release.
+    claude_md_text = topic_claude_md.render(
+        topic_claude_md.TopicClaudeMdContext(
+            schema_name=schema_name,
+            persona=schema.persona,
+            tone=knobs.tone,
+            strictness=knobs.strictness,
+        )
+    )
+
     with topic_lock(topic_dir, timeout=0.0):
         write_meta(topic_dir, meta)
         write_state(paths.state_file(topic_dir), state_doc)
-        atomic_write_text(
-            paths.claude_md_file(topic_dir),
-            CLAUDE_MD_PLACEHOLDER.format(schema_name=schema_name),
-        )
+        atomic_write_text(paths.claude_md_file(topic_dir), claude_md_text)
+
+    # Install the bundled .claude/ tree at the data dir so the
+    # SessionEnd/PreToolUse hooks fire on subsequent `remory chat` runs.
+    # Idempotent first-time copy; preserves any user edits.
+    install_data_dir_templates(data_dir, force=False)
 
     sys.stdout.write(
         f"Topic '{topic_name}' created from schema '{schema_name}'.\n"

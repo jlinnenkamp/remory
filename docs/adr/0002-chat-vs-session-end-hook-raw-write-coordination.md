@@ -51,3 +51,10 @@ belt-and-suspenders idempotency floor before writing.
 - **(c) Symmetric idempotent writes via session-id-keyed sentinel.**
   Rejected — symmetry is illusory because the surfaces have asymmetric
   context (chat holds the lock; the hook does not by default).
+
+## Addendum (Phase 6, D4)
+
+The wizard launches `claude --agent wizard` with `cwd=eff_data_dir`,
+NOT a topic dir. The SessionEnd hook's `no_topic` branch is therefore
+the wizard-transcript skip mechanism. Do not move the wizard launch
+dir without re-reading this ADR.

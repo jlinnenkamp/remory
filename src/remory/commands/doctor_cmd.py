@@ -4,17 +4,18 @@ The doctor is the user-facing recovery surface. It does not modify
 anything; each ``_check_*`` returns a :class:`CheckResult` describing
 what it found.
 
-Execution order (consolidated plan §4.6):
+Execution order (consolidated plan §4.6, updated for Phase 6 §5.11):
 
-1. ``data_dir``           — resolves and writes a probe file
-2. ``config``             — loads config.toml if present (R7: missing is OK)
-3. ``claude_binary``      — ``shutil.which("claude")``
-4. ``claude_auth``        — auth probe (R5 substring matching)
-5. ``topics_summary``     — lists topic dirs
+1. ``data_dir``                — resolves and writes a probe file
+2. ``config``                  — loads config.toml if present (R7: missing is OK)
+3. ``claude_binary``           — ``shutil.which("claude")``
+4. ``claude_auth``             — auth probe (R5 substring matching)
+5. ``topics_summary``          — lists topic dirs
 6-13. per topic: schema, state.md parse, state.md canonical (--strict),
        drift, lock orphan, tmp orphan, backups, pending orphan
-14. ``hook_installed``    — INFO line (R6 wording)
-15. ``real_cli_probe``    — ``--probe-real-cli`` only
+14. ``claude_templates``       — bundled-template drift (Phase 6 §5.11)
+15. ``per_topic_claude_md``    — per-topic CLAUDE.md drift (Phase 6 §5.11)
+16. ``real_cli_probe``         — ``--probe-real-cli`` only
 
 Auth-probe classification (R5):
 
@@ -32,6 +33,7 @@ is mandatory; not per-variant case branching. Pinned in the docstring of
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import time
@@ -41,7 +43,7 @@ from pathlib import Path
 import typer
 
 from remory import config as cfgmod
-from remory import paths
+from remory import paths, topic_claude_md
 from remory.backends.base import (
     Backend,
     BackendInvocationError,
@@ -50,7 +52,9 @@ from remory.backends.base import (
     BackendTimeoutError,
 )
 from remory.backends.claude_code import ClaudeCodeBackend
+from remory.claude_assets import _detect_version_any  # pyright: ignore[reportPrivateUsage]
 from remory.config import ConfigError
+from remory.data_templates import iter_template_relpaths, read_template_bytes
 from remory.locking import is_locked
 from remory.raw import RawStatus, list_raw
 from remory.schema import SchemaError
@@ -462,29 +466,189 @@ def _is_canonical_safe(state_path: Path) -> bool:
         return False
 
 
-def _check_hook_installed(data_dir: Path) -> CheckResult:
-    """R6 wording — hook is INFO-only in v0.1; never fails."""
+def _check_claude_templates(data_dir: Path) -> CheckResult:
+    """Phase 6 (plan §5.11): bundled-template drift check.
+
+    Classifies the data-dir ``.claude/`` tree against the bundled
+    templates. Per plan §5.11:
+
+    - settings.json missing → FAIL with "remory init" remediation.
+    - settings.json malformed JSON → FAIL with "remory init --refresh
+      --force" remediation.
+    - All bundled files byte-match disk → OK.
+    - Some bundled files stamped-older on disk → WARN.
+    - Some bundled files stamped-current but byte-edited → WARN.
+
+    Replaces the v0.1 placeholder ``_check_hook_installed`` (R6); the
+    settings-missing FAIL branch is the new owner of the
+    "hook not installed" signal.
+    """
     settings_path = data_dir / ".claude" / "settings.json"
-    installed = settings_path.exists()
-    detail = "yes" if installed else "no"
-    if installed:
-        # Phase 6 lands the hook; if the user already has settings.json
-        # we trust it for now and surface as INFO.
+    if not settings_path.exists():
         return CheckResult(
-            id="hook_installed",
-            status=CheckStatus.INFO,
-            label="hook installed",
-            detail=detail,
+            id="claude_templates",
+            status=CheckStatus.FAIL,
+            label="claude templates",
+            detail=".claude/settings.json missing",
+            remediation=("run `remory init` to recreate",),
         )
-    # Verbatim wording per R6.
+
+    # settings.json must parse as JSON; malformed bytes are a FAIL with
+    # the --refresh --force remediation (which writes a .bak first).
+    try:
+        json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        first_line = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+        return CheckResult(
+            id="claude_templates",
+            status=CheckStatus.FAIL,
+            label="claude templates",
+            detail=f".claude/settings.json malformed: {first_line}",
+            remediation=("run `remory init --refresh --force` to recreate (.bak saved)",),
+        )
+
+    total = 0
+    stale_older: list[str] = []
+    edited: list[str] = []
+    for relpath in iter_template_relpaths():
+        total += 1
+        bundled = read_template_bytes(relpath)
+        on_disk_path = data_dir / relpath
+        if not on_disk_path.exists():
+            # Treat missing-but-not-settings as a stale-older signal
+            # (the user can run --refresh to repair). This is a
+            # softer surface than FAIL because the user already gets a
+            # FAIL row when settings.json is missing.
+            stale_older.append(relpath)
+            continue
+        try:
+            disk_bytes = on_disk_path.read_bytes()
+        except OSError:
+            stale_older.append(relpath)
+            continue
+        if disk_bytes == bundled:
+            continue
+        bundled_version = _detect_version_any(relpath, bundled)
+        disk_version = _detect_version_any(relpath, disk_bytes)
+        if (
+            disk_version is not None
+            and bundled_version is not None
+            and disk_version < bundled_version
+        ):
+            stale_older.append(relpath)
+        else:
+            edited.append(relpath)
+
+    if not stale_older and not edited:
+        return CheckResult(
+            id="claude_templates",
+            status=CheckStatus.OK,
+            label="claude templates",
+            detail=f"current ({total} file(s) match bundle)",
+        )
+
+    if edited:
+        listed = ", ".join(_strip_claude_prefix(p) for p in edited)
+        count = len(edited)
+        return CheckResult(
+            id="claude_templates",
+            status=CheckStatus.WARN,
+            label="claude templates",
+            detail=f"{count} file(s) edited after stamping ({listed})",
+            remediation=(
+                "run `remory init --refresh --dry-run` to inspect; "
+                "`--refresh --force` to overwrite (.bak saved)",
+            ),
+        )
+
+    # Stale-older only.
     return CheckResult(
-        id="hook_installed",
-        status=CheckStatus.INFO,
-        label="hook installed",
-        detail=(
-            "no   (Phase 6 ships the hook; in v0.1, only `remory chat` creates "
-            "raw entries — direct claude invocations don't produce a record)"
-        ),
+        id="claude_templates",
+        status=CheckStatus.WARN,
+        label="claude templates",
+        detail=f"{len(stale_older)} of {total} file(s) stale (older template version)",
+        remediation=("run `remory init --refresh --dry-run` to inspect",),
+    )
+
+
+def _strip_claude_prefix(relpath: str) -> str:
+    """Strip a leading ``.claude/`` from a bundled relpath for display."""
+    return relpath[len(".claude/") :] if relpath.startswith(".claude/") else relpath
+
+
+def _check_per_topic_claude_md(data_dir: Path) -> CheckResult:
+    """Phase 6 (plan §5.11): per-topic ``CLAUDE.md`` drift check.
+
+    Re-renders each topic's ``CLAUDE.md`` via
+    :func:`remory.topic_claude_md.render` and compares bytes to disk.
+    Single summary line:
+
+    - all topics byte-match → OK ("current for all N topic(s)").
+    - any topic stale → WARN ("M of N topic(s) stale (names)").
+    - no topics yet → OK ("no topics yet" — the cheapest user signal).
+    """
+    topics_root = data_dir / "topics"
+    if not topics_root.is_dir():
+        return CheckResult(
+            id="per_topic_claude_md",
+            status=CheckStatus.OK,
+            label="per-topic CLAUDE.md",
+            detail="no topics yet",
+        )
+    topic_dirs = sorted([p for p in topics_root.iterdir() if p.is_dir()])
+    if not topic_dirs:
+        return CheckResult(
+            id="per_topic_claude_md",
+            status=CheckStatus.OK,
+            label="per-topic CLAUDE.md",
+            detail="no topics yet",
+        )
+
+    stale: list[str] = []
+    total = 0
+    for topic_dir in topic_dirs:
+        meta_path = paths.meta_file(topic_dir)
+        if not meta_path.is_file():
+            continue  # not a real topic
+        total += 1
+        try:
+            topic = load_topic(topic_dir)
+        except (TopicMetaError, SchemaError):
+            # Doctor's per-topic check already reports the FAIL on the
+            # parse row; don't double-count here.
+            continue
+        ctx = topic_claude_md.TopicClaudeMdContext(
+            schema_name=topic.schema.name,
+            persona=topic.schema.persona,
+            tone=topic.meta.knobs.tone,
+            strictness=topic.meta.knobs.strictness,
+        )
+        rendered = topic_claude_md.render(ctx).encode("utf-8")
+        target = paths.claude_md_file(topic_dir)
+        if not target.exists() or target.read_bytes() != rendered:
+            stale.append(topic_dir.name)
+
+    if total == 0:
+        return CheckResult(
+            id="per_topic_claude_md",
+            status=CheckStatus.OK,
+            label="per-topic CLAUDE.md",
+            detail="no topics yet",
+        )
+    if not stale:
+        return CheckResult(
+            id="per_topic_claude_md",
+            status=CheckStatus.OK,
+            label="per-topic CLAUDE.md",
+            detail=f"current for all {total} topic(s)",
+        )
+    names = ", ".join(stale)
+    return CheckResult(
+        id="per_topic_claude_md",
+        status=CheckStatus.WARN,
+        label="per-topic CLAUDE.md",
+        detail=f"{len(stale)} of {total} topic(s) stale ({names})",
+        remediation=("run `remory init --refresh --dry-run` to inspect",),
     )
 
 
@@ -589,7 +753,8 @@ def run_doctor(
     for topic_dir in topic_dirs:
         results.extend(_check_topic(topic_dir, strict=strict))
 
-    results.append(_check_hook_installed(data_dir))
+    results.append(_check_claude_templates(data_dir))
+    results.append(_check_per_topic_claude_md(data_dir))
 
     if probe_real_cli:
         results.append(_check_real_cli_probe(backend_factory=factory))

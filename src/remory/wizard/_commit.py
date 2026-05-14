@@ -29,12 +29,11 @@ from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
 
-from remory import paths
+from remory import paths, topic_claude_md
 from remory.atomic import atomic_write_text
 from remory.locking import topic_lock
 from remory.schema import Schema, load_builtin
 from remory.state import StateDoc, StateFrontmatter, StateSection, write_state
-from remory.templates import CLAUDE_MD_PLACEHOLDER
 from remory.topic import Knobs, TopicMeta, write_meta
 from remory.wizard._answers import WizardAnswers
 
@@ -268,19 +267,25 @@ def commit(
         try:
             schema = load_builtin(topic_name)
             topic_dir.mkdir(parents=False, exist_ok=False)
+            meta = _build_meta(answers, topic_name, schema)
+            claude_md_text = topic_claude_md.render(
+                topic_claude_md.TopicClaudeMdContext(
+                    schema_name=topic_name,
+                    persona=schema.persona,
+                    tone=meta.knobs.tone,
+                    strictness=meta.knobs.strictness,
+                )
+            )
             with topic_lock(topic_dir, timeout=0.0):
                 with _deferred_sigint():
-                    write_meta(topic_dir, _build_meta(answers, topic_name, schema))
+                    write_meta(topic_dir, meta)
                 with _deferred_sigint():
                     write_state(
                         paths.state_file(topic_dir),
                         _build_state_doc(topic_name, schema),
                     )
                 with _deferred_sigint():
-                    atomic_write_text(
-                        paths.claude_md_file(topic_dir),
-                        CLAUDE_MD_PLACEHOLDER.format(schema_name=topic_name),
-                    )
+                    atomic_write_text(paths.claude_md_file(topic_dir), claude_md_text)
         except KeyboardInterrupt as ki:
             # SIGINT was deferred while a write was in-flight; the
             # write completed, then unmask delivered the signal here.

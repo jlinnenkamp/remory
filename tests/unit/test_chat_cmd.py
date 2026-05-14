@@ -249,3 +249,98 @@ def test_run_chat_resume_flag_passes_through_to_backend(
     # Phase 6 added the agent kwarg; chat_cmd always passes agent=None
     # (the wizard launch path is the only one passing agent="wizard").
     assert backend.chat_calls == [{"cwd": topic_dir, "resume": True, "agent": None}]
+
+
+# ---------------------------------------------------------------------------
+# D1 pin: chat_cmd owns the nudge; SessionEnd hook never prints it.
+# ---------------------------------------------------------------------------
+
+
+def test_chat_threshold_nudge_only_fires_in_chat_cmd_not_hook(
+    isolated_xdg: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Two-surface test (D1 / ADR-0007):
+
+    1. Threshold-crossing run_chat() writes the nudge to stdout.
+    2. The same crossing via the SessionEnd hook (in-process) produces
+       no nudge — the hook never prints.
+
+    Run (1) first via run_chat; (2) is the hook driven by the same
+    threshold-crossing transcript fixture. Two separate topics avoid
+    fixture cross-talk.
+    """
+    from remory.hooks.session_end import SessionEndInput
+    from remory.hooks.session_end import run as run_hook
+    from remory.locking import topic_lock
+    from remory.topic import write_meta
+
+    # ---- Surface 1: run_chat() emits the nudge -----------------------
+    topic_dir = _seed_topic(isolated_xdg)
+    threshold = 3  # workout schema sleep.trigger_threshold
+    meta = read_meta(topic_dir)
+    bumped = meta.model_copy(update={"pending_count": threshold - 1})
+    with topic_lock(topic_dir, timeout=0.0):
+        write_meta(topic_dir, bumped)
+
+    home = isolated_xdg / "claude_home"
+    (home / "projects").mkdir(parents=True)
+    monkeypatch.setenv("FAKE_CLAUDE_HOME", str(home))
+    encoded = transcripts.encode_cwd_for_claude(topic_dir.resolve())
+    pdir = home / "projects" / encoded
+    pdir.mkdir(parents=True)
+    transcript_path = pdir / "session-nudge.jsonl"
+    _write_jsonl(transcript_path, session_id="session-nudge")
+
+    chat_result = ChatResult(
+        exit_code=0,
+        session_id="session-nudge",
+        transcript_path=transcript_path,
+        duration_seconds=1.0,
+        cwd=topic_dir,
+    )
+    backend = FakeBackend(chat_result=chat_result)
+    run_chat(
+        topic_name="workout",
+        continue_session=False,
+        backend_factory=lambda: backend,
+    )
+    chat_out = capsys.readouterr().out
+    assert "remory sleep workout" in chat_out, "chat_cmd MUST print the nudge"
+
+    # ---- Surface 2: SessionEnd hook emits NOTHING --------------------
+    # Build a second topic so the duplicate session-id guard does not
+    # fire when the hook runs (the previous write already used
+    # ``session-nudge``).
+    run_init(topic_name="coaching", schema_name="coaching")
+    topic2 = isolated_xdg / "data" / "topics" / "coaching"
+    # Set its pending to threshold-1 too (coaching threshold is 3 as well).
+    meta2 = read_meta(topic2)
+    bumped2 = meta2.model_copy(update={"pending_count": threshold - 1})
+    with topic_lock(topic2, timeout=0.0):
+        write_meta(topic2, bumped2)
+
+    encoded2 = transcripts.encode_cwd_for_claude(topic2.resolve())
+    pdir2 = home / "projects" / encoded2
+    pdir2.mkdir(parents=True, exist_ok=True)
+    transcript_path2 = pdir2 / "session-hook.jsonl"
+    _write_jsonl(transcript_path2, session_id="session-hook")
+
+    capsys.readouterr()  # drain
+    outcome = run_hook(
+        SessionEndInput(
+            cwd=topic2,
+            session_id="session-hook",
+            transcript_path=transcript_path2,
+        )
+    )
+    assert outcome.status == "wrote"
+    # Confirm the hook actually crossed the threshold too.
+    after = read_meta(topic2)
+    assert after.pending_count >= threshold
+    hook_capture = capsys.readouterr()
+    assert "remory sleep" not in hook_capture.out
+    assert "remory sleep" not in hook_capture.err
+    assert "pending entries" not in hook_capture.out
+    assert "pending entries" not in hook_capture.err

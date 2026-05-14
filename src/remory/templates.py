@@ -1,12 +1,17 @@
 """Shared text templates for Remory.
 
-Phase 5 introduces this module to host strings that more than one
-caller writes to disk verbatim. Today: the 3-line ``CLAUDE.md``
-placeholder, used by ``commands/init_cmd.py`` (the non-interactive
-stub path) and ``wizard/_commit.py`` (the wizard's COMMIT block).
+Phase 5 introduced this module to host the 3-line ``CLAUDE.md``
+placeholder used by ``commands/init_cmd.py`` and ``wizard/_commit.py``.
 
-Phase 6 will own the real ``CLAUDE.md`` template per topic; until
-then this single placeholder is good enough for the directory shape.
+**Phase 6 deprecates this constant.** The real per-topic ``CLAUDE.md``
+generator now lives in :mod:`remory.topic_claude_md` and is the only
+writer of new per-topic ``CLAUDE.md`` files. Both call sites
+(``init_cmd.py`` and ``wizard/_commit.py``) have been migrated.
+
+``CLAUDE_MD_PLACEHOLDER`` is kept exported here for one release to avoid
+breaking any external importer; it will be removed in v0.2. New callers
+must use :func:`remory.topic_claude_md.render`. Do NOT reach for this
+constant when adding code.
 """
 
 from __future__ import annotations
@@ -16,10 +21,10 @@ from typing import Final
 __all__ = ["CLAUDE_MD_PLACEHOLDER"]
 
 
-# Phase 4 + Phase 5 share these bytes verbatim. Tests pin both call
-# sites against the same constant so a typo in one side cannot drift
-# from the other. Format key: ``schema_name`` is the topic schema name
-# (e.g. ``"workout"``).
+# DEPRECATED (Phase 6): use ``remory.topic_claude_md.render`` instead.
+# Kept as an alias for one release. The bytes below are the Phase 5
+# 3-line placeholder; they are NOT what new per-topic CLAUDE.md files
+# look like in Phase 6 (those carry the §5.7 template + stamp).
 CLAUDE_MD_PLACEHOLDER: Final[str] = (
     "# Topic: {schema_name}\n"
     "Do not edit state.md. It is updated only during sleep.\n"

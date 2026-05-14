@@ -332,13 +332,122 @@ def test_init_refresh_dry_run_lists_each_category_correctly(tmp_path: Path) -> N
 
 
 # ---------------------------------------------------------------------------
-# CLI-flag-dependent tests — deferred to Phase 6 Batch 3
+# CLI-flag-dependent tests (Phase 6 Batch 3)
 # ---------------------------------------------------------------------------
 
 
-def test_init_refresh_dry_run_exits_zero_in_all_states() -> None:
-    pytest.skip(reason="--refresh CLI flag lands in Phase 6 Batch 3")
+def test_init_refresh_dry_run_exits_zero_in_all_states(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``remory init --refresh --dry-run`` always exits 0.
+
+    Covered by both: (a) clean data dir, (b) already-installed data dir.
+    """
+    from typer.testing import CliRunner
+
+    from remory.cli import app
+
+    monkeypatch.setenv("REMORY_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("REMORY_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("REMORY_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("REMORY_CONFIG_FILE", raising=False)
+
+    runner = CliRunner()
+    # (a) clean.
+    result_a = runner.invoke(app, ["init", "--refresh", "--dry-run"])
+    assert result_a.exit_code == 0, result_a.output
+    # (b) already installed.
+    install_data_dir_templates(tmp_path / "data")
+    result_b = runner.invoke(app, ["init", "--refresh", "--dry-run"])
+    assert result_b.exit_code == 0, result_b.output
 
 
-def test_init_dry_run_without_refresh_errors() -> None:
-    pytest.skip(reason="--refresh CLI flag lands in Phase 6 Batch 3")
+def test_init_dry_run_without_refresh_errors(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``remory init --dry-run`` (no --refresh) → exit 2."""
+    from typer.testing import CliRunner
+
+    from remory.cli import app
+
+    monkeypatch.setenv("REMORY_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("REMORY_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("REMORY_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("REMORY_CONFIG_FILE", raising=False)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["init", "--dry-run"])
+    assert result.exit_code == 2
+    # Verbatim per plan §5.10.
+    assert "--dry-run requires --refresh" in (result.output + (result.stderr or ""))
+
+
+def test_init_refresh_cli_writes_templates_on_clean_data_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`remory init --refresh` actually installs the templates."""
+    from typer.testing import CliRunner
+
+    from remory.cli import app
+
+    monkeypatch.setenv("REMORY_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("REMORY_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("REMORY_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("REMORY_CONFIG_FILE", raising=False)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["init", "--refresh"])
+    assert result.exit_code == 0, result.output
+    # The bundled tree is on disk.
+    for rel in iter_template_relpaths():
+        assert (tmp_path / "data" / rel).exists(), rel
+    # The header points at the resolved .claude/ path.
+    claude_root = tmp_path / "data" / ".claude"
+    assert f"Refreshed .claude/ templates at {claude_root}" in result.output
+
+
+def test_init_refresh_cli_dry_run_writes_nothing_to_disk(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`remory init --refresh --dry-run` describes actions but writes nothing."""
+    from typer.testing import CliRunner
+
+    from remory.cli import app
+
+    monkeypatch.setenv("REMORY_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("REMORY_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("REMORY_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("REMORY_CONFIG_FILE", raising=False)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["init", "--refresh", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    # "Would update" framing per §5.10.
+    assert "Would update .claude/ templates" in result.output
+    assert "Run without --dry-run to apply" in result.output
+    # No files actually written.
+    for rel in iter_template_relpaths():
+        assert not (tmp_path / "data" / rel).exists(), rel
+
+
+def test_init_refresh_cli_reports_up_to_date_when_nothing_to_change(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """After install, a second --refresh prints the "up to date" copy."""
+    from typer.testing import CliRunner
+
+    from remory.cli import app
+
+    monkeypatch.setenv("REMORY_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("REMORY_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("REMORY_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("REMORY_CONFIG_FILE", raising=False)
+
+    install_data_dir_templates(tmp_path / "data")
+    runner = CliRunner()
+    result = runner.invoke(app, ["init", "--refresh"])
+    assert result.exit_code == 0, result.output
+    # Verbatim §5.10: ".claude/ at <data_dir>/.claude/ is up to date."
+    assert "is up to date." in result.output
+    # And the per-topic CLAUDE.md line is also present.
+    assert "Per-topic CLAUDE.md is up to date for all" in result.output

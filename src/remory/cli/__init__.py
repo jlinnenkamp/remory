@@ -21,8 +21,8 @@ from typing import Annotated
 
 import typer
 
+from remory import claude_assets, paths
 from remory import config as cfgmod
-from remory import paths
 from remory.cli.errors import TopicExistsError, format_error
 from remory.commands import (
     chat_cmd,
@@ -43,6 +43,7 @@ from remory.commands import (
 from remory.commands import (
     review_cmd as review_cmd_mod,
 )
+from remory.hooks import app as _hook_app
 from remory.logging_setup import configure as configure_logging
 from remory.wizard import (
     WIZARD_REDIRECT_MESSAGE,
@@ -62,6 +63,9 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+# Phase 6: register the internal hook subapp. Hidden from --help; invoked
+# only by the bundled .claude/settings.json on the user's data dir.
+app.add_typer(_hook_app, name="_hook", hidden=True)
 
 
 def _resolve_data_dir_or_exit() -> Path:
@@ -137,6 +141,221 @@ def root(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# init --refresh renderer (plan §5.10 — column widths byte-pinned)
+# ---------------------------------------------------------------------------
+
+
+_ACTION_WIDTH = 10
+_PATH_WIDTH = 30
+
+
+def _refresh_rel_path(target: Path, data_dir: Path) -> str:
+    """Return ``target`` relative to ``data_dir`` as a POSIX string."""
+    try:
+        rel = target.relative_to(data_dir)
+    except ValueError:
+        rel = target
+    return rel.as_posix()
+
+
+def _claude_subpath(rel: str) -> str:
+    """Strip a leading ``.claude/`` from a relative path for display.
+
+    The §5.10 example shows ``agents/extractor.md``, not
+    ``.claude/agents/extractor.md`` — the "Refreshed .claude/" header
+    already establishes the prefix.
+    """
+    if rel.startswith(".claude/"):
+        return rel[len(".claude/") :]
+    return rel
+
+
+def _format_refresh_row(action: str, path: str, reason: str) -> str:
+    """Render one §5.10 row: 2-space indent + action(10) + path(30) + (reason)."""
+    return f"  {action.ljust(_ACTION_WIDTH)}{path.ljust(_PATH_WIDTH)}({reason})"
+
+
+def _format_unchanged_row(count: int) -> str:
+    """Render the §5.10 ``unchanged N file(s)`` summary row."""
+    return f"  {'unchanged'.ljust(_ACTION_WIDTH)}{count} file(s)"
+
+
+def _classify_refresh_entries(
+    result: claude_assets.EmitResult, data_dir: Path
+) -> tuple[list[str], list[str], int, list[str], list[str], int]:
+    """Split a combined EmitResult into the two §5.10 blocks.
+
+    Returns ``(claude_rows, claude_paths_for_unchanged, claude_unchanged,
+    topic_rows, topic_paths_for_unchanged, topic_unchanged)`` where
+    ``*_rows`` are pre-rendered §5.10 lines and ``*_unchanged`` are
+    counts.
+
+    Topic per-CLAUDE.md entries are identified by path prefix
+    ``topics/<slug>/CLAUDE.md`` per plan §6.4.
+    """
+    claude_rows: list[str] = []
+    topic_rows: list[str] = []
+    claude_unchanged = 0
+    topic_unchanged = 0
+    # Track the actual paths kept-unchanged for callers that want to
+    # double-check; today only the counts feed the output, but keeping
+    # them around avoids re-iterating later.
+    claude_unchanged_paths: list[str] = []
+    topic_unchanged_paths: list[str] = []
+
+    def _is_topic_claude_md(target: Path) -> bool:
+        rel = _refresh_rel_path(target, data_dir)
+        parts = rel.split("/")
+        return len(parts) == 3 and parts[0] == "topics" and parts[2] == "CLAUDE.md"
+
+    for target in result.written:
+        rel = _refresh_rel_path(target, data_dir)
+        if _is_topic_claude_md(target):
+            topic_rows.append(_format_refresh_row("regenerate", rel, "missing"))
+        else:
+            claude_rows.append(_format_refresh_row("write", _claude_subpath(rel), "missing"))
+    for target in result.overwritten:
+        rel = _refresh_rel_path(target, data_dir)
+        is_topic = _is_topic_claude_md(target)
+        # The reason text varies by branch: stamp-older vs knobs-changed
+        # vs stamped-but-edited. We re-derive from the SkippedEntry pool
+        # below — but for the .written/.overwritten lists, we only know
+        # "this was written/overwritten", so reason is "stamp older" by
+        # default (the most common cause). The caller can inspect the
+        # combined-refresh output for richer information.
+        # NOTE: a more granular split lives below; this branch is the
+        # fallback for entries that didn't ship a richer reason. In
+        # practice claude_assets/topic_claude_md hand the SkippedEntry
+        # with reason="stamp-older" / "knobs-changed" only on skip, not
+        # on overwrite. We render a generic reason on overwrite.
+        if is_topic:
+            topic_rows.append(
+                _format_refresh_row("regenerate", rel, "stamp older or knobs changed; .bak saved")
+            )
+        else:
+            claude_rows.append(
+                _format_refresh_row("overwrite", _claude_subpath(rel), "stamp older; .bak saved")
+            )
+
+    for entry in result.skipped:
+        rel = _refresh_rel_path(entry.path, data_dir)
+        is_topic = _is_topic_claude_md(entry.path)
+        if entry.reason == "unchanged":
+            if is_topic:
+                topic_unchanged += 1
+                topic_unchanged_paths.append(rel)
+            else:
+                claude_unchanged += 1
+                claude_unchanged_paths.append(rel)
+            continue
+        if entry.reason == "unstamped-preserved":
+            display = _format_refresh_row(
+                "preserve",
+                _claude_subpath(rel) if not is_topic else rel,
+                "no stamp — likely user-authored",
+            )
+            (topic_rows if is_topic else claude_rows).append(display)
+            continue
+        if entry.reason == "stamped-but-edited":
+            display = _format_refresh_row(
+                "conflict",
+                _claude_subpath(rel) if not is_topic else rel,
+                "stamp current but file edited; --force to overwrite",
+            )
+            (topic_rows if is_topic else claude_rows).append(display)
+            continue
+        if entry.reason == "newer-on-disk":
+            display = _format_refresh_row(
+                "preserve",
+                _claude_subpath(rel) if not is_topic else rel,
+                "newer template version on disk; refusing to downgrade",
+            )
+            (topic_rows if is_topic else claude_rows).append(display)
+            continue
+        if entry.reason == "meta-malformed":
+            topic_rows.append(
+                _format_refresh_row(
+                    "skip",
+                    rel,
+                    "meta.yaml malformed — re-run after fixing meta",
+                )
+            )
+            continue
+        # Unknown reason — surface verbatim rather than guess.
+        (topic_rows if is_topic else claude_rows).append(
+            _format_refresh_row(
+                "skip",
+                _claude_subpath(rel) if not is_topic else rel,
+                entry.reason,
+            )
+        )
+
+    return (
+        claude_rows,
+        claude_unchanged_paths,
+        claude_unchanged,
+        topic_rows,
+        topic_unchanged_paths,
+        topic_unchanged,
+    )
+
+
+def _format_refresh_output(
+    result: claude_assets.EmitResult, data_dir: Path, *, dry_run: bool
+) -> str:
+    """Render the §5.10 user-visible output for one refresh pass.
+
+    The format depends on (dry_run, anything-to-do) per the four cases
+    in §5.10. Returns a single string ending in ``\\n``.
+    """
+    (
+        claude_rows,
+        _claude_unchanged_paths,
+        claude_unchanged,
+        topic_rows,
+        _topic_unchanged_paths,
+        topic_unchanged,
+    ) = _classify_refresh_entries(result, data_dir)
+
+    claude_root = data_dir / ".claude"
+    claude_has_changes = bool(claude_rows)
+    topic_has_changes = bool(topic_rows)
+    any_changes = claude_has_changes or topic_has_changes
+
+    lines: list[str] = []
+
+    if not any_changes:
+        # "nothing to do" case — same wording for dry-run and non-dry-run.
+        total_topics = topic_unchanged
+        lines.append(f".claude/ at {claude_root} is up to date.")
+        lines.append(f"Per-topic CLAUDE.md is up to date for all {total_topics} topic(s).")
+        return "\n".join(lines) + "\n"
+
+    if dry_run:
+        lines.append(f"Would update .claude/ templates at {claude_root}:")
+    else:
+        lines.append(f"Refreshed .claude/ templates at {claude_root}")
+    for row in claude_rows:
+        lines.append(row)
+    if claude_unchanged > 0:
+        lines.append(_format_unchanged_row(claude_unchanged))
+
+    if dry_run:
+        lines.append("Would update per-topic CLAUDE.md:")
+    else:
+        lines.append("Per-topic CLAUDE.md:")
+    for row in topic_rows:
+        lines.append(row)
+    if topic_unchanged > 0:
+        lines.append(_format_unchanged_row(topic_unchanged))
+
+    if dry_run:
+        lines.append("Run without --dry-run to apply (a .bak will be saved for each overwrite).")
+
+    return "\n".join(lines) + "\n"
+
+
 @app.command("init")
 def cmd_init(
     topic_name: Annotated[
@@ -147,8 +366,29 @@ def cmd_init(
         str | None,
         typer.Option("--schema", help="Built-in schema: job-profile, workout, coaching."),
     ] = None,
+    refresh: Annotated[
+        bool,
+        typer.Option(
+            "--refresh",
+            help="Re-install bundled .claude/ templates and per-topic CLAUDE.md.",
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="With --refresh, overwrite stamped-but-edited files (.bak saved).",
+        ),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="With --refresh, show planned actions without writing.",
+        ),
+    ] = False,
 ) -> None:
-    """Create a new topic.
+    """Create a new topic, or refresh bundled assets.
 
     Three shapes (R3 dispatch order, binding):
 
@@ -158,8 +398,29 @@ def cmd_init(
       args. **Existing-topic check fires first** so a typo'd existing
       topic name produces D7 "already exists" guidance, not an
       R3 redirect.
+
+    Plus the Phase 6 ``--refresh`` shape:
+
+    * ``remory init --refresh [--force] [--dry-run]`` — re-install
+      bundled ``.claude/`` templates and regenerate per-topic
+      ``CLAUDE.md``. ``--dry-run`` without ``--refresh`` is an error
+      (exit 2).
     """
+    # Validate flag combination BEFORE the try block — the typer.Exit
+    # below must not get re-mapped through _emit_and_exit (which would
+    # convert it to exit 99).
+    if dry_run and not refresh:
+        sys.stderr.write("--dry-run requires --refresh\n")
+        raise typer.Exit(code=2)
+
     try:
+        if refresh:
+            eff_data_dir = _resolve_data_dir_or_exit()
+            eff_data_dir.mkdir(parents=True, exist_ok=True)
+            result = claude_assets.refresh(eff_data_dir, force=force, dry_run=dry_run)
+            sys.stdout.write(_format_refresh_output(result, eff_data_dir, dry_run=dry_run))
+            return
+
         # Empty args → wizard. The orchestrator owns the data-dir
         # resolution, the interview, and the COMMIT block.
         if topic_name is None and schema is None:

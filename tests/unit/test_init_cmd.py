@@ -130,7 +130,10 @@ def test_run_init_creates_meta_yaml_state_md_skeleton_and_claude_md(
 
     claude_md = paths.claude_md_file(topic_dir).read_text(encoding="utf-8")
     assert "Topic: workout" in claude_md
-    assert "Do not edit state.md" in claude_md
+    # Phase 6: the per-topic template uses backticks around state.md.
+    assert "Do not edit `state.md`" in claude_md
+    # Phase 6: the template carries the template-version stamp.
+    assert "<!-- remory: template_version=1 -->" in claude_md
 
     out = capsys.readouterr().out
     assert "Topic 'workout' created" in out

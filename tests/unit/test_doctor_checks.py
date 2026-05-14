@@ -7,7 +7,8 @@ Pinned tests:
 
 * ``test_check_claude_auth_case_insensitive_via_lower_once`` (R5).
 * ``test_check_config_returns_ok_when_no_config_toml_found`` (R7).
-* ``test_check_hook_installed_uses_r6_phrasing`` (R6).
+* ``test_check_claude_templates_fails_when_settings_json_absent``
+  (Phase 6 §5.11 — replaces the Phase 4 R6 ``hook_installed`` row).
 """
 
 from __future__ import annotations
@@ -27,9 +28,9 @@ from remory.backends.base import (
 from remory.commands.doctor_cmd import (
     _check_claude_auth,
     _check_claude_binary,
+    _check_claude_templates,
     _check_config,
     _check_data_dir,
-    _check_hook_installed,
     _check_topic,
     _check_topics_summary,
 )
@@ -221,27 +222,18 @@ def test_check_topics_summary_lists_dirs_alphabetically(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# hook_installed (R6)
+# claude_templates (Phase 6 — replaces R6 hook_installed)
 # ---------------------------------------------------------------------------
 
 
-def test_check_hook_installed_returns_info_with_r6_wording_when_absent(
+def test_check_claude_templates_fails_when_settings_json_absent(
     tmp_path: Path,
 ) -> None:
-    result = _check_hook_installed(tmp_path)
-    assert result.status is CheckStatus.INFO
-    # Verbatim per R6: must mention Phase 6 and direct claude invocations.
-    assert "Phase 6 ships the hook" in result.detail
-    assert "remory chat" in result.detail
-    assert "direct claude invocations don't produce a record" in result.detail
-
-
-def test_check_hook_installed_returns_info_when_present(tmp_path: Path) -> None:
-    settings = tmp_path / ".claude" / "settings.json"
-    settings.parent.mkdir(parents=True)
-    settings.write_text("{}", encoding="utf-8")
-    result = _check_hook_installed(tmp_path)
-    assert result.status is CheckStatus.INFO
+    result = _check_claude_templates(tmp_path)
+    assert result.status is CheckStatus.FAIL
+    # Verbatim per plan §5.11 — settings missing FAIL remediation.
+    assert ".claude/settings.json missing" in result.detail
+    assert any("remory init" in r for r in result.remediation)
 
 
 # ---------------------------------------------------------------------------

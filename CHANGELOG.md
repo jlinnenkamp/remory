@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `remory init` — first-run wizard now runs as a Claude Code subagent
+  driven by the model; requires `claude` installed and logged in
+  (points at `remory doctor` if not). See ADR-0006.
+- `remory doctor` — reports template and per-topic `CLAUDE.md` drift
+  as warnings; fails only on missing or malformed `.claude/settings.json`.
+
 ### Added
+- `remory init --refresh [--force] [--dry-run]` — re-installs bundled
+  `.claude/` templates and regenerates per-topic `CLAUDE.md`. Preserves
+  user-edited files; writes `.bak` before any overwrite.
+- SessionEnd hook installed: captures transcripts as raw entries when
+  you talk to `claude` directly (outside `remory chat`). See ADR-0002.
+- PreToolUse hook installed: refuses any attempt to edit `state.md`
+  from within `claude` — the only legitimate writer is `remory sleep`.
 - Three built-in topic types — `job-profile`, `workout`, and `coaching` — each
   with a defined set of state sections, a default tone and strictness, and
   wizard questions for first-run setup.

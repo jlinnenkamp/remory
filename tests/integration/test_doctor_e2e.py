@@ -33,8 +33,18 @@ def test_run_doctor_clean_run_does_not_exit_when_no_failures(
     """Clean run: data_dir writable, no config.toml, claude binary
     discoverable via fake_claude_on_path, auth probe successful via a
     FakeBackend factory; no topics; should NOT exit non-zero.
+
+    Phase 6 §5.11 added the ``claude_templates`` FAIL row when
+    ``.claude/settings.json`` is missing, so a "clean run" now requires
+    the bundled templates to be installed first (mirrors what
+    ``remory init`` does on a real first run).
     """
-    del isolated_xdg, fake_claude_on_path
+    del fake_claude_on_path
+    # Phase 6: install bundled templates so the new
+    # `claude_templates` check passes.
+    from remory.claude_assets import install_data_dir_templates
+
+    install_data_dir_templates(isolated_xdg / "data")
 
     from remory.backends.base import HeadlessMeta, HeadlessResult
 
@@ -157,3 +167,37 @@ def test_run_doctor_classifies_login_stderr_as_fail_with_locked_remediation(
         run_doctor(strict=False, probe_real_cli=False, backend_factory=lambda: backend)
     out = capsys.readouterr().out
     assert "Sleep will retry 9 times before failing if you skip this." in out
+
+
+def test_doctor_reports_dot_claude_present_when_init_refresh_has_run(
+    isolated_xdg: Path,
+    fake_claude_on_path: tuple[Path],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Phase 6 §5.11: ``claude templates`` row reports OK after `--refresh`."""
+    del fake_claude_on_path
+    from typer.testing import CliRunner
+
+    from remory.backends.base import HeadlessMeta, HeadlessResult
+    from remory.cli import app
+
+    runner = CliRunner()
+    refresh_result = runner.invoke(app, ["init", "--refresh"])
+    assert refresh_result.exit_code == 0, refresh_result.output
+    # Sanity: settings.json is on disk.
+    assert (isolated_xdg / "data" / ".claude" / "settings.json").exists()
+
+    ok = HeadlessResult(
+        text="pong",
+        session_id="sess-ok",
+        duration_ms=1,
+        num_turns=1,
+        stop_reason="end_turn",
+        meta=HeadlessMeta(),
+    )
+    backend = FakeBackend(headless_results=(ok,))
+    run_doctor(strict=False, probe_real_cli=False, backend_factory=lambda: backend)
+    out = capsys.readouterr().out
+    # The §5.11 OK row.
+    assert "claude templates" in out
+    assert "match bundle" in out

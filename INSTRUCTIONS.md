@@ -520,7 +520,7 @@ Available to the user during `remory chat`:
 
 ### Hooks (`.claude/settings.json`)
 
-- **`SessionEnd`** hook: invokes a small Python helper that reads the JSONL transcript, normalises it to markdown, writes it as a new raw entry, and bumps `pending_count`. Prints the friendly threshold suggestion if appropriate.
+- **`SessionEnd`** hook: invokes a small Python helper that reads the JSONL transcript, normalises it to markdown, writes it as a new raw entry, and bumps `pending_count`. It does not print the threshold nudge. The nudge is owned by `remory chat` on session exit; users invoking `claude` directly will see the nudge on their next `remory chat`. See ADR-0002.
 - **`PreToolUse`** hook on `Edit`/`Write`: blocks any attempt to modify `state.md` during chat. `state.md` is read-only outside sleep. This is enforced by hook, not just by prompt instruction.
 
 ### Per-topic `CLAUDE.md`
