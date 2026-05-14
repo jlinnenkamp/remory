@@ -42,7 +42,7 @@ These are settled. Do not relitigate.
 | Lint/format | **ruff** |
 | Type checker | **pyright** |
 | Test framework | **pytest** |
-| License | **Apache 2.0** |
+| License | **AGPL-3.0-or-later** |
 | Telemetry | **None.** Hard architectural property. Stated explicitly in README. |
 | LLM backend (default) | `ClaudeCodeBackend` — subprocess to local `claude` CLI; uses Anthropic Max subscription |
 | LLM backend (stub) | `AnthropicAPIBackend` — off by default, requires `ANTHROPIC_API_KEY`; ships as a reference for contributors |
@@ -75,7 +75,7 @@ remory/
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
 ├── SECURITY.md
-├── LICENSE                       # Apache 2.0 text
+├── LICENSE                       # AGPL-3.0-or-later text
 ├── INSTRUCTIONS.md               # this file (build spec)
 ├── CLAUDE.md                     # how Claude Code behaves in this repo
 ├── .gitignore

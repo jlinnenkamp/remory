@@ -3,7 +3,7 @@ name = "remory"
 version = "0.1.0"
 description = "A second brain that actually remembers."
 readme = "README.md"
-license = "Apache-2.0"
+license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [
     { name = "jens", email = "63923335+Linnk-GitHub@users.noreply.github.com" }
