@@ -7,10 +7,6 @@
 
 Remory is a terminal-based personal-assistant harness on top of Claude Code that gives you persistent, topic-scoped conversations whose memory you can actually read.
 
-<!-- TODO(asciinema): record `remory chat workout` followed by `remory sleep workout`
-     against the fake claude binary in tests/fakes/. Embed the .cast file here.
-     Deferred from Phase 7 per INSTRUCTIONS.md §13. -->
-
 ## Why Remory exists
 
 Long-running conversations with an LLM degrade in a particular way: the model weights the most recent turn highest and the oldest turns lowest, so the picture it has of you drifts toward whatever you said this week. Tools that paper over this with vector search and summarisation rarely surface the drift; they just give the drift a new shape. If you have ever caught a chatbot confidently telling you something about yourself that was true two months ago and false today, you have met the recency-bias problem.
