@@ -19,20 +19,25 @@ The decision: a schema is a YAML file. Built-in schemas live in
 `src/remory/schemas_builtin/` and are validated against a Pydantic
 model at package import. User-authored schemas live in
 `$XDG_CONFIG_HOME/remory/schemas/` and are validated on first use.
-Both load through the same code path. A user-authored schema with the
-same `name:` as a built-in shadows the built-in.
+Both load through the same Pydantic model. Built-in names are
+reserved: a topic configured against a built-in name always loads the
+bundled schema, and user schemas exist for net-new topic types only.
 
 ## Decision
 
-`schema.py` exposes a `Schema` Pydantic model and a `load_schema(name)`
-function. Loading walks the user-config directory first, then the
-bundled directory, and returns the first match. The Pydantic model is
-the single validation point: shape errors, type errors, unknown fields
-(`extra="forbid"`), and cross-field constraints (e.g. `append_only`
-sections must not have `wizard_questions` referencing them) all
-surface as Pydantic `ValidationError` instances, which the CLI surface
-formats into a human-readable error pointing at the offending file and
-line.
+`schema.py` exposes a `Schema` Pydantic model and two loaders:
+`load_builtin(name)` reads from the bundled package data,
+`load_user(path)` reads from the user config directory. The topic
+loader picks between them by name: a topic whose schema name matches
+one of the reserved built-in names always loads the bundled schema;
+any other name is resolved from `$XDG_CONFIG_HOME/remory/schemas/`.
+The Pydantic model is the single validation point: shape errors, type
+errors, unknown fields (`extra="forbid"` for built-ins;
+`extra="ignore"` for user schemas, for forward-compat tolerance), and
+cross-field constraints (e.g. `append_only` sections must not have
+`wizard_questions` referencing them) all surface as Pydantic
+`ValidationError` instances, which the CLI surface formats into a
+human-readable error pointing at the offending file and line.
 
 A user adds a topic type by dropping a single YAML file into the
 config directory. They do not install a Python package, do not write a
@@ -49,12 +54,15 @@ line. A schema validation failure during `remory init` or `remory
 doctor` must not leak a Pydantic traceback to the terminal; it should
 render as a single readable diagnostic.
 
-The shadowing rule (user-schema beats built-in with the same name) is a
-deliberate footgun for power users and a documentation burden. A user
-who copies `workout.yaml` from the built-ins to tweak it, then forgets
-they did so, will be confused when a Remory upgrade does not change
-their workout topic. `remory doctor` is the surface that surfaces the
-shadowing; it lists user-authored schemas separately.
+Built-in names being reserved means a user who wants to customise a
+built-in topic's behaviour cannot do it by dropping a same-named YAML
+into the config directory. The v0.1 levers are the per-topic `knobs:`
+in `meta.yaml` (which the wizard sets and the user can edit) and
+forking the schema under a different name in the user config directory.
+The reserved-name rule trades the convenience of in-place override for
+the predictability of "the bundled `workout` is always the bundled
+`workout`" — a Remory upgrade that changes the built-in workout schema
+applies cleanly to every user's workout topic without surprise.
 
 User-authored schemas are shareable as single files. A user can paste
 a friend's schema into their config directory and it works. A user
