@@ -2,8 +2,7 @@
 
 ## Reporting a vulnerability
 
-<!-- Set this before tagging v0.1.0. -->
-If you find a security issue in Remory, please email **TODO(security-email)** with the details. Please do not open a public GitHub issue for security reports.
+If you find a security issue in Remory, please email remory@mail.de with the details. Please do not open a public GitHub issue for security reports.
 
 A response should arrive within five business days. There is no bug bounty programme; the project is unfunded.
 

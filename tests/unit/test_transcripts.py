@@ -47,7 +47,7 @@ def _assistant_event(
 
 
 def test_encode_cwd_for_claude_replaces_slash_and_dot_with_dash() -> None:
-    assert transcripts.encode_cwd_for_claude(Path("/home/jens/x.y")) == "-home-jens-x-y"
+    assert transcripts.encode_cwd_for_claude(Path("/home/user/x.y")) == "-home-user-x-y"
 
 
 def test_iter_events_skips_malformed_lines_with_warning(

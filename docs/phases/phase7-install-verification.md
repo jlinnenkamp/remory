@@ -21,7 +21,7 @@ Commands run:
 
 ```bash
 python3 -m venv /tmp/remory-tierA/venv
-/tmp/remory-tierA/venv/bin/pip install /home/jens/linux_code/remory
+/tmp/remory-tierA/venv/bin/pip install .
 REMORY_DATA_DIR=/tmp/remory-tierA/data \
 REMORY_STATE_DIR=/tmp/remory-tierA/state \
   /tmp/remory-tierA/venv/bin/remory doctor
