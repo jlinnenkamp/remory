@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `remory doctor` — failures now exit with code 1 cleanly. Previously the
+  full failure report printed correctly, then a second message added
+  `Something unexpected went wrong: Exit().` and the process exited 99,
+  directing users to file a bug against the wrong thing. The same fix
+  also makes `remory init`'s usage errors exit 2 instead of 99.
+
 ### Changed
 - `remory init` — first-run wizard now runs as a Claude Code subagent
   driven by the model; requires `claude` installed and logged in

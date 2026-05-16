@@ -84,6 +84,39 @@ def test_run_doctor_fails_with_exit_1_when_topic_meta_unparseable(
     assert "FAIL" in out or "fail" in out
 
 
+def test_doctor_cli_exits_with_code_1_on_failure_not_99_via_catchall(
+    isolated_xdg: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """doctor's typer.Exit(1) on failure propagates through the CLI wrapper as exit 1.
+
+    Regression: _emit_and_exit caught typer.Exit alongside other Exception
+    subclasses and re-routed it through format_error's catch-all, surfacing
+    "Something unexpected went wrong: Exit()." with exit 99 — directing the
+    user to file a bug against the wrong thing. Surfaced by Phase 7's Tier A
+    install verification.
+    """
+    del isolated_xdg
+    # Hide claude from PATH so the binary check classifies cleanly without
+    # depending on whatever's on the host PATH.
+    monkeypatch.setenv("PATH", "/nonexistent-path-for-doctor-test")
+    from typer.testing import CliRunner
+
+    from remory.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["doctor"])
+    # On a virgin data dir the claude templates check FAILs (no
+    # .claude/settings.json yet), so doctor raises typer.Exit(1).
+    assert result.exit_code == 1, (
+        f"expected exit 1, got {result.exit_code}; output={result.output!r}"
+    )
+    # The catch-all's bug-report banner must NOT appear.
+    assert "Something unexpected went wrong" not in result.output, (
+        f"catch-all bug-report banner leaked into output: {result.output!r}"
+    )
+
+
 def test_run_doctor_strict_warns_on_handedited_state_md(
     isolated_xdg: Path,
     fake_claude_on_path: tuple[Path],

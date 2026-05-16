@@ -86,6 +86,12 @@ def _emit_and_exit(exc: BaseException) -> None:
         # CC8: print a newline so the next prompt isn't on the ^C line.
         sys.stderr.write("\n")
         raise typer.Exit(code=130) from exc
+    # typer.Exit is the explicit "I already know my exit code, just exit"
+    # signal. Re-routing it through format_error would convert legitimate
+    # exit codes (doctor's 1 on failures, init's 2 on usage errors) into
+    # the catch-all's "Something unexpected went wrong" / exit 99.
+    if isinstance(exc, typer.Exit):
+        raise exc
     data_dir = _resolve_data_dir_or_exit()
     message, code = format_error(exc, data_dir=data_dir)
     if message:
@@ -406,14 +412,10 @@ def cmd_init(
       ``CLAUDE.md``. ``--dry-run`` without ``--refresh`` is an error
       (exit 2).
     """
-    # Validate flag combination BEFORE the try block — the typer.Exit
-    # below must not get re-mapped through _emit_and_exit (which would
-    # convert it to exit 99).
-    if dry_run and not refresh:
-        sys.stderr.write("--dry-run requires --refresh\n")
-        raise typer.Exit(code=2)
-
     try:
+        if dry_run and not refresh:
+            sys.stderr.write("--dry-run requires --refresh\n")
+            raise typer.Exit(code=2)
         if refresh:
             eff_data_dir = _resolve_data_dir_or_exit()
             eff_data_dir.mkdir(parents=True, exist_ok=True)
