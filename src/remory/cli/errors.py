@@ -361,6 +361,14 @@ def format_error(exc: BaseException, *, data_dir: Path) -> tuple[str, int]:
         )
         return msg, 1
 
+    if isinstance(exc, paths.DataDirInsideSourceTreeError):
+        msg = (
+            f"Data directory {exc.candidate} is inside the Remory source tree.\n"
+            "Refusing to use it — your conversation transcripts would land in git.\n"
+            "Unset REMORY_DATA_DIR (or point it outside the repo) and try again.\n"
+        )
+        return msg, 9
+
     if isinstance(exc, ConfigError):
         path_part = f" at {exc.source}" if exc.source is not None else ""
         edit_hint = f"Edit {exc.source} by hand" if exc.source is not None else "Edit it by hand"

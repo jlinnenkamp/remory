@@ -142,10 +142,17 @@ def resolve_data_dir(cfg: Config) -> Path:
 
     Precedence: ``$REMORY_DATA_DIR`` env > ``cfg.paths.data_dir`` (if non-empty)
     > ``paths.data_dir()`` (the XDG default).
+
+    Raises:
+        DataDirInsideSourceTreeError: when running from an in-tree checkout
+            and the resolved directory sits inside this repo. See ADR 0012.
     """
     env = os.environ.get("REMORY_DATA_DIR")
     if env:
-        return Path(env)
-    if cfg.paths.data_dir:
-        return Path(cfg.paths.data_dir)
-    return paths.data_dir()
+        candidate = Path(env)
+    elif cfg.paths.data_dir:
+        candidate = Path(cfg.paths.data_dir)
+    else:
+        return paths.data_dir()
+    paths.refuse_if_inside_source_tree(candidate)
+    return candidate

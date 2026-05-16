@@ -25,6 +25,7 @@ from pathlib import Path
 import platformdirs
 
 __all__ = [
+    "DataDirInsideSourceTreeError",
     "about_me_file",
     "backups_dir",
     "claude_md_file",
@@ -33,6 +34,7 @@ __all__ = [
     "logs_dir",
     "meta_file",
     "raw_year_dir",
+    "refuse_if_inside_source_tree",
     "review_file",
     "state_dir",
     "state_file",
@@ -40,6 +42,60 @@ __all__ = [
     "topics_dir",
     "validate_topic_name",
 ]
+
+
+class DataDirInsideSourceTreeError(RuntimeError):
+    """Resolved data directory sits inside the Remory source repository.
+
+    Raised by :func:`refuse_if_inside_source_tree` when the running interpreter
+    is loading ``remory`` from a ``src/``-layout checkout *and* the candidate
+    data directory is inside that same checkout. Prevents the failure mode
+    where a developer's conversation transcripts land in ``git status``.
+    """
+
+    def __init__(self, candidate: Path, repo_root: Path) -> None:
+        super().__init__(
+            f"data directory {candidate} is inside the Remory source tree at {repo_root}"
+        )
+        self.candidate = candidate
+        self.repo_root = repo_root
+
+
+def _repo_root_if_in_tree() -> Path | None:
+    """Return this repo's root iff the module is running from an in-tree checkout.
+
+    Discriminator: in a ``src/``-layout checkout this file is at
+    ``<repo>/src/remory/paths.py`` and ``<repo>/pyproject.toml`` exists. In any
+    pip/pipx install the module is under ``site-packages/remory/`` instead, so
+    the grandparent's name is not ``src`` and the function returns ``None`` —
+    meaning the guard is a no-op for installed copies.
+    """
+    here = Path(__file__).resolve()
+    if here.parent.parent.name != "src":
+        return None
+    repo_root = here.parent.parent.parent
+    if not (repo_root / "pyproject.toml").exists():
+        return None
+    return repo_root
+
+
+def refuse_if_inside_source_tree(candidate: Path) -> None:
+    """Raise :class:`DataDirInsideSourceTreeError` if ``candidate`` is inside this repo.
+
+    Only fires when the running interpreter is loading ``remory`` from a
+    ``src/``-layout checkout (an editable install or an in-place ``python -m``
+    invocation). Installed copies are unaffected because there is no in-tree
+    source for them to collide with.
+    """
+    repo_root = _repo_root_if_in_tree()
+    if repo_root is None:
+        return
+    try:
+        candidate.resolve().relative_to(repo_root.resolve())
+    except ValueError:
+        return
+    raise DataDirInsideSourceTreeError(candidate, repo_root)
+
 
 # Topic names: lowercase ASCII letters, digits, ``-``, ``_``; must start with
 # letter or digit. Mirrors the constraint in §2 of INSTRUCTIONS.md and keeps
@@ -77,11 +133,16 @@ def data_dir() -> Path:
 
     ``$REMORY_DATA_DIR`` (when set and non-empty) wins; otherwise
     ``platformdirs.user_data_path("remory")``.
+
+    Raises:
+        DataDirInsideSourceTreeError: when running from an in-tree checkout
+            and the resolved directory sits inside this repo. See
+            :func:`refuse_if_inside_source_tree` and ADR 0012.
     """
     env = os.environ.get("REMORY_DATA_DIR")
-    if env:
-        return Path(env)
-    return platformdirs.user_data_path("remory")
+    candidate = Path(env) if env else platformdirs.user_data_path("remory")
+    refuse_if_inside_source_tree(candidate)
+    return candidate
 
 
 def config_dir() -> Path:
