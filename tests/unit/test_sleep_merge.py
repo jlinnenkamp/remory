@@ -270,6 +270,38 @@ def test_append_only_merge_strips_multiline_text_to_single_line(tmp_path: Path) 
     assert "line one line two  line three" in bullet_line
 
 
+def test_append_only_merge_strips_leading_date_prefix_from_model_supplied_text(
+    tmp_path: Path,
+) -> None:
+    """Real bug: the extractor sometimes prefixes its own ``YYYY-MM-DD``
+    to the text (e.g. ``"2026-05-17 — Shared CV..."``), and the harness
+    prepends the entry's date too — so the rendered bullet ends up as
+    ``"- 2026-05-17: 2026-05-17 — Shared CV..."``. The extract prompt
+    now tells the model not to do this, but the merger strips a leading
+    date defensively so output stays clean even if the model slips."""
+    raw = _make_pending_raw(tmp_path, datetime(2026, 5, 17, 9, 30, tzinfo=UTC))
+    rel = f"raw/{raw.path.parent.name}/{raw.path.name}"
+    # Three common shapes the model has been observed to use.
+    candidates = [
+        ExtractCandidate(text="2026-05-17 — Shared CV today", evidence=rel),
+        ExtractCandidate(text="2026-05-17: Specified gaps", evidence=rel),
+        ExtractCandidate(text="2026-05-17 - Decided on Route 2", evidence=rel),
+    ]
+    out = append_only_merge(
+        section=_evidence_log_section(),
+        current_text="",
+        candidates=candidates,
+        raw_lookup=_lookup([raw]),
+    )
+    # Each bullet renders with exactly one leading "2026-05-17:" (from
+    # the harness), not the model's redundant prefix as well.
+    assert "2026-05-17: Shared CV today" in out
+    assert "2026-05-17: Specified gaps" in out
+    assert "2026-05-17: Decided on Route 2" in out
+    # No bullet contains the duplicated date.
+    assert "2026-05-17: 2026-05-17" not in out
+
+
 def test_append_only_merge_uses_posix_path_separators_on_all_platforms(
     tmp_path: Path,
 ) -> None:

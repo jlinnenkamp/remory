@@ -19,6 +19,7 @@ disappears silently -- drift sections are surfaced via WARNING log,
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC
 
@@ -136,13 +137,32 @@ def merge_section(
 # ---------------------------------------------------------------------------
 
 
+# Strip a leading YYYY-MM-DD followed by a separator. The separator
+# alternation covers ASCII hyphen, ASCII colon, em-dash (U+2014), and
+# en-dash (U+2013); the model has been observed to use any of them.
+# Em-dash and en-dash are spelled as unicode escapes so the source
+# stays ASCII (avoids ruff RUF001 on ambiguous unicode characters).
+_LEADING_DATE_RE = re.compile(
+    "^\\d{4}-\\d{2}-\\d{2}\\s*[:\\-\u2014\u2013]\\s*",
+)
+
+
 def _normalise_text(text: str) -> str:
-    """Multi-line -> single-line per D4.5: replace newlines with ``' '`` and strip.
+    """Multi-line -> single-line per D4.5, then strip a leading date prefix.
 
     Order pinned by spec: ``text.replace('\\n', ' ').replace('\\r', ' ').strip()``.
     Sequential ``\\r\\n`` collapses to two spaces; that is the wire contract.
+
+    Defense in depth: if the extractor included its own ``YYYY-MM-DD``
+    prefix in the text (e.g. ``"2026-05-17 — Shared CV..."``), strip it
+    here. The harness prepends the entry's creation date via
+    :func:`_format_bullet`, so a model-supplied date prefix shows up as
+    a duplicate (``"- 2026-05-17: 2026-05-17 — Shared CV..."``). The
+    extract prompt also tells the model not to include dates, but this
+    guard fires regardless so output stays clean if the model slips.
     """
-    return text.replace("\n", " ").replace("\r", " ").strip()
+    single_line = text.replace("\n", " ").replace("\r", " ").strip()
+    return _LEADING_DATE_RE.sub("", single_line, count=1)
 
 
 def _format_bullet(date_iso: str, text: str, evidence: str) -> str:

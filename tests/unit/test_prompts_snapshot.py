@@ -112,6 +112,11 @@ updates. Each candidate has the shape:
 
   {"text": "<one-line statement>", "evidence": "raw/<year>/<file>.md"}
 
+The ``text`` field is the content only. Do NOT prefix dates or
+timestamps to it — for append_only sections the harness prepends the
+entry's creation date when rendering, so a model-supplied date prefix
+appears as a duplicate.
+
 Sections with no candidate updates can be omitted or have an empty list.
 Do not include any section ids not listed above.
 """
