@@ -7,7 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `remory init --reset` wipes user state (`topics/`, `.remory/`,
+  `about-me.md`) under the data dir before running init. Intended
+  for testing fresh-install flows; the destructive scope is printed
+  to stdout. Rejected when combined with `--refresh` (which only
+  touches templates, not user data).
+
 ### Fixed
+
+- Wizard's closing line now tells the user to type `/exit` (or press
+  Ctrl+D) so the harness can take over and write the topic dir.
+  Previously the wizard said "All set — I'll hand you back" and then
+  sat there, because the model can't terminate its own interactive
+  claude session and the user had no signal to exit.
+- Wizard's letter no longer silently polishes the user's spelling
+  or grammar. The `wish` field in `answers.json` was already kept
+  verbatim; the letter is now under the same contract ("destill"
+  stays "destill"). The user's voice is the user's voice.
+- `remory doctor`'s template-edited remediation hint now leads with
+  the primary action (`remory init --refresh --force`) and presents
+  `--dry-run` as the optional preview, rather than dumping both
+  flags in parallel.
+- `remory init --refresh` no longer claims `stamp older; .bak saved`
+  when overwriting a stamped-but-edited file under `--force`. The
+  classification was inherited from the apply path's fallback reason
+  string and didn't match the dry-run's pre-apply classification.
+  Apply rows now just say `.bak saved` (neutral) so they don't
+  contradict the dry-run output.
 
 - `remory init` wizard now actually starts. v0.1.0 shipped a bundled
   `wizard.md` template containing the literal string `{{run_dir}}` as a

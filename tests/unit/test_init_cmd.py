@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from remory import paths
+from remory.cli import _wipe_user_data
 from remory.cli.errors import TopicExistsError
 from remory.commands.init_cmd import run_init
 from remory.locking import is_locked
@@ -148,3 +149,53 @@ def test_run_init_releases_topic_lock_after_writes_complete(
     # After init returns, the lock file may exist on disk but must not
     # be held — a fresh acquirer should succeed.
     assert is_locked(topic_dir) is False
+
+
+# ---------------------------------------------------------------------------
+# --reset wipe helper
+# ---------------------------------------------------------------------------
+
+
+def test_wipe_user_data_removes_topics_remory_and_about_me(
+    isolated_xdg: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--reset wipes the three user-data surfaces and leaves .claude/ alone."""
+    data_dir = isolated_xdg / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "topics" / "workout").mkdir(parents=True)
+    (data_dir / "topics" / "workout" / "state.md").write_text("existing\n")
+    (data_dir / ".remory" / "wizard-recovery" / "2026-01-01T00-00-00Z").mkdir(parents=True)
+    (data_dir / "about-me.md").write_text("name: Sam\n", encoding="utf-8")
+    (data_dir / ".claude" / "agents").mkdir(parents=True)
+    sentinel = data_dir / ".claude" / "agents" / "marker.txt"
+    sentinel.write_text("should survive\n", encoding="utf-8")
+
+    _wipe_user_data(data_dir)
+
+    assert not (data_dir / "topics").exists()
+    assert not (data_dir / ".remory").exists()
+    assert not (data_dir / "about-me.md").exists()
+    # .claude/ is preserved — templates are re-installable; reset is
+    # about user content, not bundled assets.
+    assert sentinel.read_text(encoding="utf-8") == "should survive\n"
+
+    out = capsys.readouterr().out
+    assert "Reset: wiped" in out
+    assert "topics/" in out
+    assert ".remory/" in out
+    assert "about-me.md" in out
+
+
+def test_wipe_user_data_is_idempotent_when_data_dir_already_empty(
+    isolated_xdg: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--reset on a clean data dir reports 'nothing to wipe', does not crash."""
+    data_dir = isolated_xdg / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    _wipe_user_data(data_dir)
+
+    out = capsys.readouterr().out
+    assert "Reset: nothing to wipe" in out

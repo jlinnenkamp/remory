@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -78,6 +79,38 @@ def _resolve_data_dir_or_exit() -> Path:
         # caller handles ConfigError separately. Use the env/XDG path.
         return paths.data_dir()
     return cfgmod.resolve_data_dir(cfg)
+
+
+def _wipe_user_data(data_dir: Path) -> None:
+    """Remove user-created state from ``data_dir`` for a clean re-init.
+
+    Wipes ``topics/``, ``.remory/``, and ``about-me.md``. Leaves
+    ``.claude/`` alone (templates are re-installable, and the next
+    ``remory init`` re-installs them anyway). Idempotent: missing
+    paths are skipped silently. Used by ``remory init --reset`` for
+    testing fresh-install flows.
+
+    Prints what was wiped to stdout so the user has a paper trail.
+    """
+    topics = data_dir / "topics"
+    remory_scratch = data_dir / ".remory"
+    about_me = data_dir / "about-me.md"
+
+    wiped: list[str] = []
+    if topics.exists():
+        shutil.rmtree(topics)
+        wiped.append("topics/")
+    if remory_scratch.exists():
+        shutil.rmtree(remory_scratch)
+        wiped.append(".remory/")
+    if about_me.exists():
+        about_me.unlink()
+        wiped.append("about-me.md")
+
+    if wiped:
+        sys.stdout.write(f"Reset: wiped {', '.join(wiped)} under {data_dir}\n")
+    else:
+        sys.stdout.write(f"Reset: nothing to wipe under {data_dir}\n")
 
 
 def _emit_and_exit(exc: BaseException) -> None:
@@ -224,25 +257,16 @@ def _classify_refresh_entries(
     for target in result.overwritten:
         rel = _refresh_rel_path(target, data_dir)
         is_topic = _is_topic_claude_md(target)
-        # The reason text varies by branch: stamp-older vs knobs-changed
-        # vs stamped-but-edited. We re-derive from the SkippedEntry pool
-        # below — but for the .written/.overwritten lists, we only know
-        # "this was written/overwritten", so reason is "stamp older" by
-        # default (the most common cause). The caller can inspect the
-        # combined-refresh output for richer information.
-        # NOTE: a more granular split lives below; this branch is the
-        # fallback for entries that didn't ship a richer reason. In
-        # practice claude_assets/topic_claude_md hand the SkippedEntry
-        # with reason="stamp-older" / "knobs-changed" only on skip, not
-        # on overwrite. We render a generic reason on overwrite.
+        # claude_assets.refresh doesn't track the trigger that made each
+        # overwrite happen (stamp-older vs knobs-changed vs stamped-but-
+        # edited under --force), so we render a neutral reason here. The
+        # earlier dry-run pass shows the per-file trigger via the
+        # SkippedEntry path below — users who want the trigger detail
+        # run `--refresh --dry-run` first.
         if is_topic:
-            topic_rows.append(
-                _format_refresh_row("regenerate", rel, "stamp older or knobs changed; .bak saved")
-            )
+            topic_rows.append(_format_refresh_row("regenerate", rel, ".bak saved"))
         else:
-            claude_rows.append(
-                _format_refresh_row("overwrite", _claude_subpath(rel), "stamp older; .bak saved")
-            )
+            claude_rows.append(_format_refresh_row("overwrite", _claude_subpath(rel), ".bak saved"))
 
     for entry in result.skipped:
         rel = _refresh_rel_path(entry.path, data_dir)
@@ -393,6 +417,16 @@ def cmd_init(
             help="With --refresh, show planned actions without writing.",
         ),
     ] = False,
+    reset: Annotated[
+        bool,
+        typer.Option(
+            "--reset",
+            help=(
+                "Destructive: wipe topics/, .remory/, and about-me.md from the "
+                "data dir before init. For testing fresh-install flows."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Create a new topic, or refresh bundled assets.
 
@@ -411,10 +445,22 @@ def cmd_init(
       bundled ``.claude/`` templates and regenerate per-topic
       ``CLAUDE.md``. ``--dry-run`` without ``--refresh`` is an error
       (exit 2).
+
+    Plus the ``--reset`` shape (testing helper):
+
+    * ``remory init --reset`` — wipe user data (topics/, .remory/,
+      about-me.md) under the data dir, then run the wizard. Combine
+      with ``<name> --schema`` for a non-interactive reset+create.
+      Rejected with ``--refresh`` (which doesn't touch user data).
     """
     try:
         if dry_run and not refresh:
             sys.stderr.write("--dry-run requires --refresh\n")
+            raise typer.Exit(code=2)
+        if reset and refresh:
+            sys.stderr.write(
+                "--reset wipes user data; --refresh only updates templates. Pick one.\n"
+            )
             raise typer.Exit(code=2)
         if refresh:
             eff_data_dir = _resolve_data_dir_or_exit()
@@ -422,6 +468,10 @@ def cmd_init(
             result = claude_assets.refresh(eff_data_dir, force=force, dry_run=dry_run)
             sys.stdout.write(_format_refresh_output(result, eff_data_dir, dry_run=dry_run))
             return
+
+        if reset:
+            eff_data_dir = _resolve_data_dir_or_exit()
+            _wipe_user_data(eff_data_dir)
 
         # Empty args → wizard. The orchestrator owns the data-dir
         # resolution, the interview, and the COMMIT block.

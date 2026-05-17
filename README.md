@@ -25,6 +25,10 @@ remory sleep workout           # consolidate the conversation into state.md
 remory state workout           # read what Remory now knows
 ```
 
+If `python3 --version` is below 3.12 (Ubuntu 22.04 ships 3.10), install a 3.12 interpreter first and point pipx at it: `uv python install 3.12 && pipx install --python "$(uv python find 3.12)" git+https://github.com/jlinnenkamp/remory.git`. `pipx reinstall remory` after a Remory update doesn't remember the `--python` flag — pass it again, or use `pipx install --force ...` with the same `--python`.
+
+The first time `remory init` launches the wizard, the bundled `claude` CLI will ask you to trust your Remory data directory. Say yes — it's the folder Remory just created for you.
+
 Your data lives in `$XDG_DATA_HOME/remory/` (typically `~/.local/share/remory/` on Linux, `~/Library/Application Support/remory/` on macOS). Nothing is ever written inside this source repo.
 
 ## Built-in topics

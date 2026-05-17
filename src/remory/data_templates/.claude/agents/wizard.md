@@ -48,8 +48,12 @@ The interview has six beats. Move briskly.
    - `knobs_by_topic` has one entry per chosen topic. The `tone` and `strictness` values must be drawn from the `options` block of that topic's schema (e.g. `"warm"`, `"direct"`, `"gentle"`, `"rigorous"`, `"balanced"`). If the user skipped, use the value from that schema's `defaults` block.
    - `wish` is a string or `null` if skipped.
 
-6. **Compose the letter.** After writing `answers.json`, write `.remory/wizard-run-current/letter.md`: one paragraph in second person, 3–5 sentences, reading back what you heard. Reflect the *specific* things the user said, not the topic descriptions. End on a note that signals you'll keep what they bring you. No preamble, no headings, no bullets.
+6. **Compose the letter.** After writing `answers.json`, write `.remory/wizard-run-current/letter.md`: one paragraph in second person, 3–5 sentences, reading back what you heard. Reflect the *specific* things the user said, not the topic descriptions. Preserve the user's own words — do not silently correct spelling, grammar, or phrasing; if they wrote "destill", write "destill". End on a note that signals you'll keep what they bring you. No preamble, no headings, no bullets.
 
-After both files are written, say one short closing line to the user (e.g. "All set — I'll hand you back to the rest of Remory now") and stop. Do not try to launch other commands. Do not edit any other files.
+After both files are written, say exactly this closing line and then stop generating:
+
+> All set. Type `/exit` (or press Ctrl+D) and Remory will take it from here.
+
+Do not try to launch other commands. Do not edit any other files. The harness reads `answers.json` and `letter.md` after the session ends and writes the user's topic dirs.
 
 If the user presses Ctrl+C during the conversation, that's fine — nothing has been written yet outside this run directory, and Remory's harness handles the rest.

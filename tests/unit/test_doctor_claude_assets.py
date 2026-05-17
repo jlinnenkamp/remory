@@ -41,7 +41,7 @@ def test_doctor_reports_ok_when_every_bundled_template_byte_matches_disk(
     assert "match bundle" in result.detail
 
 
-def test_doctor_warns_when_stamped_template_edited_on_disk_and_points_at_dry_run(
+def test_doctor_warns_when_stamped_template_edited_on_disk_and_leads_with_force(
     isolated_xdg: Path,
 ) -> None:
     data_dir = isolated_xdg / "data"
@@ -54,10 +54,15 @@ def test_doctor_warns_when_stamped_template_edited_on_disk_and_points_at_dry_run
     # The detail mentions the offending file and "edited after stamping".
     assert "edited after stamping" in result.detail
     assert "agents/extractor.md" in result.detail
-    # Remediation points at `remory init --refresh --dry-run` (per §5.11).
+    # Remediation leads with the primary action (--refresh --force) and
+    # mentions --dry-run as the optional preview, not the other way
+    # around. A user reading the hint top-down should see the fix first.
     rem_text = "\n".join(result.remediation)
-    assert "remory init --refresh --dry-run" in rem_text
     assert "--refresh --force" in rem_text
+    assert "--dry-run" in rem_text
+    assert rem_text.index("--force") < rem_text.index("--dry-run"), (
+        "primary action (--force) must come before the optional preview (--dry-run)"
+    )
 
 
 def test_doctor_warns_when_one_topic_claude_md_stale_and_names_count_not_all_topics(

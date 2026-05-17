@@ -556,8 +556,8 @@ def _check_claude_templates(data_dir: Path) -> CheckResult:
             label="claude templates",
             detail=f"{count} file(s) edited after stamping ({listed})",
             remediation=(
-                "run `remory init --refresh --dry-run` to inspect; "
-                "`--refresh --force` to overwrite (.bak saved)",
+                "run `remory init --refresh --force` to overwrite "
+                "(.bak saved); add `--dry-run` to preview first",
             ),
         )
 
