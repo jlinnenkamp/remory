@@ -20,11 +20,11 @@ prompting and no fallback paragraph. See ADR-0006.
 from __future__ import annotations
 
 import logging
+import shutil
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from rich.console import Console
 
@@ -157,45 +157,52 @@ def _stage_repair_prompt(run_dir: Path, error_message: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Run-directory layout
+# ---------------------------------------------------------------------------
+
+# Fixed path inside the data dir so the wizard.md template can hard-code
+# the location (relative to cwd, which the launcher sets to data_dir).
+# Two benefits over a /tmp tempdir: (1) it's inside cwd, so claude trusts
+# it without an "outside the project" permission prompt; (2) the path is
+# stable, so the wizard subagent's instructions don't have to be
+# parameterised per launch. Wiped at the start of each run; left in
+# place after the run so a failed-but-not-recovery-dumped session can
+# still be inspected before the next `remory init` cycle.
+WIZARD_RUN_DIR_RELATIVE: str = ".remory/wizard-run-current"
+
+
+def _wizard_run_dir(data_dir: Path) -> Path:
+    return data_dir / WIZARD_RUN_DIR_RELATIVE
+
+
+# ---------------------------------------------------------------------------
 # Initial-prompt construction
 # ---------------------------------------------------------------------------
 
-
-def _build_initial_prompt(run_dir: Path) -> str:
-    """Compose the first-turn prompt the harness sends to the wizard subagent.
-
-    The wizard.md template tells the model *what* to do (six beats);
-    this prompt tells it *where* its run-directory artefacts live and
-    that it speaks first. The path can't be baked into wizard.md
-    because that template is installed once at ``remory init`` time and
-    the run-dir is staged fresh per launch.
-    """
-    return (
-        f"Your run directory for this session is {run_dir}.\n"
-        f"- Read {run_dir}/manifest.json for the list of built-in topic schemas.\n"
-        f"- Read {run_dir}/schemas/<name>.yaml for each topic's persona, sections, "
-        "knobs, and wizard questions.\n"
-        "\n"
-        "Begin the first-run interview now: greet the user warmly, then walk them "
-        "through the six beats in your instructions. Speak first."
-    )
+# Kept minimal on purpose. claude's interactive `--agent X` mode requires
+# a user-side first turn before the agent speaks; we send the shortest
+# natural opener that doesn't read as the user instructing the model.
+# The wizard.md template carries the run-dir path (now stable) and the
+# "speak first when the user opens with a kick-off" behaviour, so this
+# message stays plumbing-free from the user's perspective.
+_INITIAL_PROMPT: str = "Help me get started."
 
 
-def _build_repair_prompt(run_dir: Path) -> str:
+def _build_repair_prompt() -> str:
     """Compose the repair-round first-turn prompt.
 
-    The harness has already written ``repair_prompt.txt`` into the run
-    directory; the prompt below tells the subagent to Read it before
-    re-writing ``answers.json`` + ``letter.md``. Sent alongside
-    ``resume=True`` so the prior conversation is still in context, but
-    self-sufficient if claude drops the subagent across the resume.
+    The harness has already written ``repair_prompt.txt`` into the
+    fixed run directory; the prompt below tells the subagent to Read
+    it before re-writing ``answers.json`` + ``letter.md``. Sent
+    alongside ``resume=True`` so the prior conversation is still in
+    context, but self-sufficient if claude drops the subagent across
+    the resume.
     """
     return (
-        f"Your previous attempt produced an invalid answers.json. The validation "
-        f"error is at {run_dir}/{REPAIR_PROMPT_FILE_NAME} — read it.\n"
-        "\n"
-        f"Then re-write {run_dir}/answers.json and {run_dir}/letter.md per your "
-        "wizard instructions, drawing on the conversation you just had with the user."
+        f"Something went wrong with the last answer file. The validation error "
+        f"is at {WIZARD_RUN_DIR_RELATIVE}/{REPAIR_PROMPT_FILE_NAME} — please read "
+        f"it, then re-write {WIZARD_RUN_DIR_RELATIVE}/answers.json and "
+        f"{WIZARD_RUN_DIR_RELATIVE}/letter.md to match what we just talked about."
     )
 
 
@@ -317,71 +324,73 @@ def run_wizard(
     install_data_dir_templates(eff_data_dir, force=False)
 
     # --- 3-5. Stage run dir, launch subagent, parse + one repair round -----
-    with TemporaryDirectory(prefix="remory-wizard-run-") as run_dir_str:
-        run_dir = Path(run_dir_str)
-        stage_run_dir(run_dir)
+    run_dir = _wizard_run_dir(eff_data_dir)
+    # Wipe any leftover from a prior aborted run; the operator's only
+    # interest in old wizard-run-current contents is between runs, and
+    # the recovery dump already captures the salient bits on failure.
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    stage_run_dir(run_dir)
 
-        initial_prompt = _build_initial_prompt(run_dir)
+    # First attempt.
+    try:
+        first_result = eff_backend.chat(
+            cwd=eff_data_dir,
+            agent="wizard",
+            resume=False,
+            initial_prompt=_INITIAL_PROMPT,
+        )
+    except KeyboardInterrupt:
+        sys.stderr.write(S.PRE_COMMIT_INTERRUPT_MESSAGE)
+        raise
 
-        # First attempt.
+    if first_result.exit_code != 0:
+        sys.stderr.write(S.PRE_COMMIT_INTERRUPT_MESSAGE)
+        raise WizardSubagentFailedError(
+            f"wizard subagent exited with code {first_result.exit_code}"
+        )
+
+    try:
+        run_result: SubagentRunResult = parse_run_dir(run_dir)
+    except WizardAnswerParseError as exc1:
+        _log.warning(
+            "wizard subagent produced unparseable output; starting repair round",
+            extra={"exception_type": type(exc1).__name__, "wizard_step": "parse"},
+        )
+        _stage_repair_prompt(run_dir, exc1.message)
         try:
-            first_result = eff_backend.chat(
+            second_result = eff_backend.chat(
                 cwd=eff_data_dir,
                 agent="wizard",
-                resume=False,
-                initial_prompt=initial_prompt,
+                resume=True,
+                initial_prompt=_build_repair_prompt(),
             )
         except KeyboardInterrupt:
-            sys.stderr.write(S.PRE_COMMIT_INTERRUPT_MESSAGE)
+            # Mid-repair Ctrl+C still means nothing committed; dump
+            # what we have so far so the user's prior turns aren't
+            # lost (memory feedback_no_silent_data_loss).
+            recovery_dir = dump_recovery(eff_data_dir, run_dir, exc1)
+            sys.stderr.write(S.RECOVERY_MESSAGE_TEMPLATE.format(recovery_dir=recovery_dir))
             raise
 
-        if first_result.exit_code != 0:
-            sys.stderr.write(S.PRE_COMMIT_INTERRUPT_MESSAGE)
+        if second_result.exit_code != 0:
+            recovery_dir = dump_recovery(eff_data_dir, run_dir, exc1)
+            sys.stderr.write(S.RECOVERY_MESSAGE_TEMPLATE.format(recovery_dir=recovery_dir))
             raise WizardSubagentFailedError(
-                f"wizard subagent exited with code {first_result.exit_code}"
-            )
+                f"wizard subagent (repair) exited with code {second_result.exit_code}",
+                recovery_dir=recovery_dir,
+            ) from exc1
 
         try:
-            run_result: SubagentRunResult = parse_run_dir(run_dir)
-        except WizardAnswerParseError as exc1:
-            _log.warning(
-                "wizard subagent produced unparseable output; starting repair round",
-                extra={"exception_type": type(exc1).__name__, "wizard_step": "parse"},
-            )
-            _stage_repair_prompt(run_dir, exc1.message)
-            repair_prompt = _build_repair_prompt(run_dir)
-            try:
-                second_result = eff_backend.chat(
-                    cwd=eff_data_dir,
-                    agent="wizard",
-                    resume=True,
-                    initial_prompt=repair_prompt,
-                )
-            except KeyboardInterrupt:
-                # Mid-repair Ctrl+C still means nothing committed; dump
-                # what we have so far so the user's prior turns aren't
-                # lost (memory feedback_no_silent_data_loss).
-                recovery_dir = dump_recovery(eff_data_dir, run_dir, exc1)
-                sys.stderr.write(S.RECOVERY_MESSAGE_TEMPLATE.format(recovery_dir=recovery_dir))
-                raise
-
-            if second_result.exit_code != 0:
-                recovery_dir = dump_recovery(eff_data_dir, run_dir, exc1)
-                sys.stderr.write(S.RECOVERY_MESSAGE_TEMPLATE.format(recovery_dir=recovery_dir))
-                raise WizardSubagentFailedError(
-                    f"wizard subagent (repair) exited with code {second_result.exit_code}",
-                    recovery_dir=recovery_dir,
-                ) from exc1
-
-            try:
-                run_result = parse_run_dir(run_dir)
-            except WizardAnswerParseError as exc2:
-                recovery_dir = dump_recovery(eff_data_dir, run_dir, exc2)
-                sys.stderr.write(S.RECOVERY_MESSAGE_TEMPLATE.format(recovery_dir=recovery_dir))
-                raise WizardSubagentFailedError(
-                    "wizard subagent produced unparseable output twice",
-                    recovery_dir=recovery_dir,
-                ) from exc2
+            run_result = parse_run_dir(run_dir)
+        except WizardAnswerParseError as exc2:
+            recovery_dir = dump_recovery(eff_data_dir, run_dir, exc2)
+            sys.stderr.write(S.RECOVERY_MESSAGE_TEMPLATE.format(recovery_dir=recovery_dir))
+            raise WizardSubagentFailedError(
+                "wizard subagent produced unparseable output twice",
+                recovery_dir=recovery_dir,
+            ) from exc2
 
     # --- 6. COMMIT -----------------------------------------------------------
     commit(run_result.answers, run_result.letter, data_dir=eff_data_dir)

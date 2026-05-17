@@ -29,7 +29,7 @@ from remory.wizard import (
     WizardSubagentFailedError,
 )
 from remory.wizard import _orchestrator as orch_mod
-from remory.wizard._orchestrator import run_wizard
+from remory.wizard._orchestrator import WIZARD_RUN_DIR_RELATIVE, run_wizard
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32",
@@ -66,31 +66,15 @@ def fake_claude_on_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iter
 
 @pytest.fixture
 def wizard_run_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
-    """Pin the wizard run directory under tmp_path so the test can inspect it.
+    """Yield the fixed wizard run-directory path and point fake_claude at it.
 
-    Monkeypatches :class:`tempfile.TemporaryDirectory` inside the
-    orchestrator to a context manager wrapping our owned path. The
-    ``FAKE_CLAUDE_WIZARD_RUN_DIR`` env var is set to the same path so
-    the fake's wizard mode writes there.
+    The orchestrator now stages the run dir at a fixed location under
+    the data dir (``<data_dir>/.remory/wizard-run-current/``); the
+    fixture computes that path and sets ``FAKE_CLAUDE_WIZARD_RUN_DIR``
+    so the fake's wizard mode writes there.
     """
-    run_dir = tmp_path / "wizard-run"
-
-    class _Owned:
-        def __init__(self) -> None:
-            self._path = run_dir
-
-        def __enter__(self) -> str:
-            self._path.mkdir(parents=True, exist_ok=True)
-            return str(self._path)
-
-        def __exit__(self, *exc_info: object) -> None:
-            del exc_info
-
-    def factory(prefix: str = "") -> _Owned:
-        del prefix
-        return _Owned()
-
-    monkeypatch.setattr(orch_mod, "TemporaryDirectory", factory)
+    data_dir = tmp_path / "data"
+    run_dir = data_dir / WIZARD_RUN_DIR_RELATIVE
     monkeypatch.setenv("FAKE_CLAUDE_WIZARD_RUN_DIR", str(run_dir))
     yield run_dir
 

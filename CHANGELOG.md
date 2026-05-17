@@ -14,13 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   placeholder for the per-launch run-directory path; the harness never
   substituted it, so the wizard subagent either sat at an empty prompt
   waiting for user input or improvised a filesystem-wide `find /` for
-  its manifest. The harness now passes the run-directory path and a
-  speak-first instruction to `claude` via an initial-prompt argument on
-  every wizard launch (and on the repair-round launch), and the
-  bundled `wizard.md` no longer hard-codes any path placeholder.
-  Upgrading from v0.1.0 requires `remory init --refresh` so the
-  installed `<data_dir>/.claude/agents/wizard.md` picks up the new
-  bytes; `remory doctor` will flag the drift in the meantime.
+  its manifest.
+- `remory init` wizard's first-turn user message is no longer a 5-line
+  technical brief about the run-directory path. The run dir now lives
+  at a fixed location inside the data dir
+  (`<data_dir>/.remory/wizard-run-current/`) — wiped and re-staged at
+  the start of each run — so the wizard.md template can hard-code the
+  path. The initial prompt sent to `claude` is now just `"Help me get
+  started."`, which reads as the user inviting the wizard rather than
+  the user instructing claude. The wizard subagent treats the first
+  user turn as a kick-off (not a real question), opens with a warm
+  greeting, and asks for the user's name. Two ancillary improvements:
+  the run dir is now inside `cwd`, so claude no longer shows the
+  "outside the project" permission prompt for each schema read; and
+  the run dir's stable location makes it easier for operators to
+  inspect after an aborted run. Upgrading from a prior pre-release
+  requires `remory init --refresh --force` so the installed
+  `<data_dir>/.claude/agents/wizard.md` picks up the new bytes;
+  `remory doctor` flags the drift in the meantime.
 
 ### Changed
 

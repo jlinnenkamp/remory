@@ -10,8 +10,9 @@ The orchestrator is the contract-bearing surface:
 
 The tests do NOT use ``fake_claude``; they drive a custom in-process
 backend that records ``chat`` calls and writes the run-dir files on
-demand. ``TemporaryDirectory`` is monkeypatched so the test owns the
-run-dir path.
+demand. The run dir is at a fixed path under the data dir
+(``<data_dir>/.remory/wizard-run-current/``); the orchestrator wipes
+and recreates it before each launch.
 """
 
 from __future__ import annotations
@@ -20,9 +21,7 @@ import io
 import json
 import sys
 from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
 from pathlib import Path
-from types import TracebackType
 
 import pytest
 from rich.console import Console
@@ -41,7 +40,7 @@ from remory.wizard import (
     WizardSubagentFailedError,
 )
 from remory.wizard import _orchestrator as orch_mod
-from remory.wizard._orchestrator import run_wizard
+from remory.wizard._orchestrator import WIZARD_RUN_DIR_RELATIVE, run_wizard
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32",
@@ -146,16 +145,16 @@ class _PreflightFailBackend(_AuthOKBackend):
 class _ScriptedChatBackend(_AuthOKBackend):
     """Backend whose ``chat`` calls run scripted side effects.
 
-    Each step in ``script`` is a callable taking ``(run_dir)`` and
-    returning a ``ChatResult``. The orchestrator's run_dir is staged
-    before the first chat call (we stash it in the test via the
-    TemporaryDirectory monkeypatch).
+    Each step in ``script`` is a callable taking ``(run_dir, cwd,
+    resume, agent)`` and returning a ``ChatResult``. The backend
+    computes ``run_dir`` from ``cwd`` using the same relative path the
+    orchestrator does, so the script's side-effect can write
+    ``answers.json`` / ``letter.md`` where the orchestrator will look.
     """
 
-    def __init__(self, script: Iterable[object], run_dir_holder: dict[str, Path]) -> None:
+    def __init__(self, script: Iterable[object]) -> None:
         super().__init__()
         self._script: list[object] = list(script)
-        self._run_dir_holder = run_dir_holder
 
     def chat(
         self,
@@ -176,56 +175,13 @@ class _ScriptedChatBackend(_AuthOKBackend):
         if not self._script:
             raise AssertionError("ScriptedChatBackend.chat: script exhausted")
         step = self._script.pop(0)
-        run_dir = self._run_dir_holder.get("path")
-        if run_dir is None:
-            raise AssertionError("run_dir not staged before chat call")
+        run_dir = cwd / WIZARD_RUN_DIR_RELATIVE
         if not callable(step):
             raise AssertionError(f"script step is not callable: {step!r}")
         result = step(run_dir, cwd, resume, agent)
         if not isinstance(result, ChatResult):
             raise AssertionError(f"script step returned {type(result).__name__}, not ChatResult")
         return result
-
-
-# ---------------------------------------------------------------------------
-# TemporaryDirectory monkeypatch helper
-# ---------------------------------------------------------------------------
-
-
-class _OwnedTempDir:
-    """Stand-in for ``tempfile.TemporaryDirectory`` whose path the test owns."""
-
-    def __init__(self, path: Path) -> None:
-        self._path = path
-
-    def __enter__(self) -> str:
-        self._path.mkdir(parents=True, exist_ok=True)
-        return str(self._path)
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        # Leave the dir in place — the test asserts on its contents in
-        # failure-path tests. tmp_path cleans up at the session level.
-        del exc_type, exc, tb
-
-
-@contextmanager
-def _owned_tempdir_factory(
-    monkeypatch: pytest.MonkeyPatch,
-    run_dir_path: Path,
-    run_dir_holder: dict[str, Path],
-) -> Iterator[None]:
-    def factory(prefix: str = "") -> _OwnedTempDir:
-        del prefix
-        run_dir_holder["path"] = run_dir_path
-        return _OwnedTempDir(run_dir_path)
-
-    monkeypatch.setattr(orch_mod, "TemporaryDirectory", factory)
-    yield
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +285,7 @@ def test_run_wizard_skips_subagent_and_raises_when_preflight_fails(
         ),
     )
 
-    backend = _ScriptedChatBackend(script=[], run_dir_holder={})
+    backend = _ScriptedChatBackend(script=[])
 
     with pytest.raises(WizardPreflightError):
         run_wizard(
@@ -345,24 +301,19 @@ def test_run_wizard_skips_subagent_and_raises_when_preflight_fails(
 
 def test_run_wizard_commits_when_subagent_writes_valid_files(
     isolated_xdg: Path,
-    monkeypatch: pytest.MonkeyPatch,
     patched_preflight: None,  # fixture applies patches as a side effect
 ) -> None:
     """Happy path: chat writes files → COMMIT runs → topic dir + about-me.md exist."""
     data_dir = isolated_xdg / "data"
-    run_dir = isolated_xdg / "run"
-    holder: dict[str, Path] = {}
     backend = _ScriptedChatBackend(
         script=[_make_chat_step(side_effect=lambda rd: _write_valid(rd))],
-        run_dir_holder=holder,
     )
 
-    with _owned_tempdir_factory(monkeypatch, run_dir, holder):
-        run_wizard(
-            backend_factory=lambda: backend,
-            console=_quiet_console(),
-            data_dir=data_dir,
-        )
+    run_wizard(
+        backend_factory=lambda: backend,
+        console=_quiet_console(),
+        data_dir=data_dir,
+    )
 
     # One chat call with agent="wizard" and cwd=data_dir.
     assert len(backend.chat_calls) == 1
@@ -377,13 +328,10 @@ def test_run_wizard_commits_when_subagent_writes_valid_files(
 
 def test_run_wizard_retries_once_when_first_answers_malformed_then_commits(
     isolated_xdg: Path,
-    monkeypatch: pytest.MonkeyPatch,
     patched_preflight: None,
 ) -> None:
     """Repair round: first chat writes malformed answers, second writes valid."""
     data_dir = isolated_xdg / "data"
-    run_dir = isolated_xdg / "run"
-    holder: dict[str, Path] = {}
 
     def write_malformed(rd: Path) -> None:
         (rd / "answers.json").write_text("{not json", encoding="utf-8")
@@ -394,15 +342,13 @@ def test_run_wizard_retries_once_when_first_answers_malformed_then_commits(
             _make_chat_step(side_effect=write_malformed),
             _make_chat_step(side_effect=lambda rd: _write_valid(rd)),
         ],
-        run_dir_holder=holder,
     )
 
-    with _owned_tempdir_factory(monkeypatch, run_dir, holder):
-        run_wizard(
-            backend_factory=lambda: backend,
-            console=_quiet_console(),
-            data_dir=data_dir,
-        )
+    run_wizard(
+        backend_factory=lambda: backend,
+        console=_quiet_console(),
+        data_dir=data_dir,
+    )
 
     # Two chat calls: first resume=False, second resume=True.
     assert len(backend.chat_calls) == 2
@@ -412,52 +358,42 @@ def test_run_wizard_retries_once_when_first_answers_malformed_then_commits(
     assert (data_dir / "topics" / "workout").is_dir()
 
 
-def test_run_wizard_first_chat_initial_prompt_contains_run_dir_path_and_speak_first(
+def test_run_wizard_first_chat_initial_prompt_is_natural_user_opener_not_technical(
     isolated_xdg: Path,
-    monkeypatch: pytest.MonkeyPatch,
     patched_preflight: None,
 ) -> None:
-    """The first-attempt chat() carries an initial_prompt that names the run
-    directory and instructs the subagent to speak first. Without this,
-    interactive `claude --agent wizard` drops the user at an empty prompt
-    waiting for input (real bug fixed in this commit)."""
+    """The first-attempt chat() carries a short natural kick-off prompt, NOT
+    a technical brief about the run directory or instructions for the
+    subagent. The path is hard-coded in wizard.md (relative to cwd =
+    data_dir) so the user-facing initial turn reads as the user asking
+    for help, not the harness instructing claude. UX regression guard."""
     data_dir = isolated_xdg / "data"
-    run_dir = isolated_xdg / "run"
-    holder: dict[str, Path] = {}
     backend = _ScriptedChatBackend(
         script=[_make_chat_step(side_effect=lambda rd: _write_valid(rd))],
-        run_dir_holder=holder,
     )
 
-    with _owned_tempdir_factory(monkeypatch, run_dir, holder):
-        run_wizard(
-            backend_factory=lambda: backend,
-            console=_quiet_console(),
-            data_dir=data_dir,
-        )
+    run_wizard(
+        backend_factory=lambda: backend,
+        console=_quiet_console(),
+        data_dir=data_dir,
+    )
 
     assert len(backend.chat_calls) == 1
     initial_prompt = backend.chat_calls[0]["initial_prompt"]
     assert isinstance(initial_prompt, str)
-    # Path appears at least once so the subagent knows where its
-    # manifest + schemas live.
-    assert str(run_dir) in initial_prompt
-    # Kick-off language: the wizard must take the first turn.
-    assert "Speak first" in initial_prompt
+    # Natural opener: short, no path leaks, no "you must do X" framing.
+    assert initial_prompt == "Help me get started."
 
 
 def test_run_wizard_repair_chat_initial_prompt_points_at_repair_prompt_file(
     isolated_xdg: Path,
-    monkeypatch: pytest.MonkeyPatch,
     patched_preflight: None,
 ) -> None:
     """When the first attempt fails parse, the repair chat() carries an
-    initial_prompt that points at <run_dir>/repair_prompt.txt so the
+    initial_prompt that points at the run dir's repair_prompt.txt so the
     subagent reads the validation error even if --resume drops the agent
-    context."""
+    context. Uses the relative path (hard-coded in wizard.md too)."""
     data_dir = isolated_xdg / "data"
-    run_dir = isolated_xdg / "run"
-    holder: dict[str, Path] = {}
 
     def write_malformed(rd: Path) -> None:
         (rd / "answers.json").write_text("{not json", encoding="utf-8")
@@ -468,33 +404,28 @@ def test_run_wizard_repair_chat_initial_prompt_points_at_repair_prompt_file(
             _make_chat_step(side_effect=write_malformed),
             _make_chat_step(side_effect=lambda rd: _write_valid(rd)),
         ],
-        run_dir_holder=holder,
     )
 
-    with _owned_tempdir_factory(monkeypatch, run_dir, holder):
-        run_wizard(
-            backend_factory=lambda: backend,
-            console=_quiet_console(),
-            data_dir=data_dir,
-        )
+    run_wizard(
+        backend_factory=lambda: backend,
+        console=_quiet_console(),
+        data_dir=data_dir,
+    )
 
     assert len(backend.chat_calls) == 2
     repair_prompt = backend.chat_calls[1]["initial_prompt"]
     assert isinstance(repair_prompt, str)
-    assert str(run_dir / "repair_prompt.txt") in repair_prompt
+    assert f"{WIZARD_RUN_DIR_RELATIVE}/repair_prompt.txt" in repair_prompt
     assert "answers.json" in repair_prompt
 
 
 def test_run_wizard_dumps_recovery_and_raises_when_second_attempt_fails(
     isolated_xdg: Path,
-    monkeypatch: pytest.MonkeyPatch,
     patched_preflight: None,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Two-strike parse fail: recovery dir written, exception raised, no COMMIT."""
     data_dir = isolated_xdg / "data"
-    run_dir = isolated_xdg / "run"
-    holder: dict[str, Path] = {}
 
     def write_malformed(rd: Path) -> None:
         (rd / "answers.json").write_text("{nope", encoding="utf-8")
@@ -505,13 +436,9 @@ def test_run_wizard_dumps_recovery_and_raises_when_second_attempt_fails(
             _make_chat_step(side_effect=write_malformed),
             _make_chat_step(side_effect=write_malformed),
         ],
-        run_dir_holder=holder,
     )
 
-    with (
-        _owned_tempdir_factory(monkeypatch, run_dir, holder),
-        pytest.raises((WizardSubagentFailedError, WizardAnswerParseError)),
-    ):
+    with pytest.raises((WizardSubagentFailedError, WizardAnswerParseError)):
         run_wizard(
             backend_factory=lambda: backend,
             console=_quiet_console(),
@@ -532,22 +459,15 @@ def test_run_wizard_dumps_recovery_and_raises_when_second_attempt_fails(
 
 def test_run_wizard_does_not_enter_commit_when_subagent_exits_nonzero(
     isolated_xdg: Path,
-    monkeypatch: pytest.MonkeyPatch,
     patched_preflight: None,
 ) -> None:
     """Subagent exit-code != 0 on first call → no COMMIT, raises."""
     data_dir = isolated_xdg / "data"
-    run_dir = isolated_xdg / "run"
-    holder: dict[str, Path] = {}
     backend = _ScriptedChatBackend(
         script=[_make_chat_step(side_effect=lambda rd: None, exit_code=42)],
-        run_dir_holder=holder,
     )
 
-    with (
-        _owned_tempdir_factory(monkeypatch, run_dir, holder),
-        pytest.raises(WizardSubagentFailedError),
-    ):
+    with pytest.raises(WizardSubagentFailedError):
         run_wizard(
             backend_factory=lambda: backend,
             console=_quiet_console(),
@@ -560,27 +480,52 @@ def test_run_wizard_does_not_enter_commit_when_subagent_exits_nonzero(
 
 def test_run_wizard_passes_data_dir_through_to_commit_unchanged(
     isolated_xdg: Path,
-    monkeypatch: pytest.MonkeyPatch,
     patched_preflight: None,
 ) -> None:
     """The data_dir kwarg threads to commit unchanged (no canonicalisation)."""
     custom_data_dir = isolated_xdg / "alt-data-dir"
-    run_dir = isolated_xdg / "run"
-    holder: dict[str, Path] = {}
     backend = _ScriptedChatBackend(
         script=[_make_chat_step(side_effect=lambda rd: _write_valid(rd))],
-        run_dir_holder=holder,
     )
 
-    with _owned_tempdir_factory(monkeypatch, run_dir, holder):
-        run_wizard(
-            backend_factory=lambda: backend,
-            console=_quiet_console(),
-            data_dir=custom_data_dir,
-        )
+    run_wizard(
+        backend_factory=lambda: backend,
+        console=_quiet_console(),
+        data_dir=custom_data_dir,
+    )
 
     # The custom data dir was used: topic dir and about-me.md land there.
     assert (custom_data_dir / "topics" / "workout").is_dir()
     assert paths.about_me_file(custom_data_dir).exists()
     # chat was called with that cwd.
     assert backend.chat_calls[0]["cwd"] == custom_data_dir
+
+
+def test_run_wizard_wipes_prior_run_dir_at_start_so_stale_state_does_not_leak(
+    isolated_xdg: Path,
+    patched_preflight: None,
+) -> None:
+    """If a prior aborted wizard run left files behind in the fixed run dir,
+    the next run wipes and re-stages so stale answers don't accidentally
+    pass parse."""
+    data_dir = isolated_xdg / "data"
+    run_dir = data_dir / WIZARD_RUN_DIR_RELATIVE
+    # Seed stale leftover that would mis-parse if not wiped.
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "stale.txt").write_text("leftover from a prior aborted run", encoding="utf-8")
+
+    backend = _ScriptedChatBackend(
+        script=[_make_chat_step(side_effect=lambda rd: _write_valid(rd))],
+    )
+
+    run_wizard(
+        backend_factory=lambda: backend,
+        console=_quiet_console(),
+        data_dir=data_dir,
+    )
+
+    # Stale leftover is gone; fresh manifest is in place.
+    assert not (run_dir / "stale.txt").exists()
+    assert (run_dir / "manifest.json").exists()
+    # And COMMIT succeeded against the fresh-staged dir.
+    assert (data_dir / "topics" / "workout").is_dir()
