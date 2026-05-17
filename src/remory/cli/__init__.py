@@ -454,6 +454,15 @@ def cmd_init(
         if reset:
             eff_data_dir = _resolve_data_dir_or_exit()
             _wipe_user_data(eff_data_dir)
+            # Re-install bundled .claude/ templates with force=True so
+            # the test flow picks up any new template bytes shipped with
+            # this Remory version (the wizard.md fix that motivated this
+            # whole flow being the canonical example). Without this,
+            # testers have to remember a separate --refresh --force step
+            # before --reset, and forget it half the time.
+            eff_data_dir.mkdir(parents=True, exist_ok=True)
+            claude_assets.refresh(eff_data_dir, force=True, dry_run=False)
+            sys.stdout.write(f"Reset: refreshed bundled .claude/ templates under {eff_data_dir}\n")
 
         # Empty args → wizard. The orchestrator owns the data-dir
         # resolution, the interview, and the COMMIT block.
