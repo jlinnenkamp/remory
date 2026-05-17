@@ -306,6 +306,7 @@ def render_sleep_summary(result: SleepResult) -> str:
         lines.append(_R4_CRITIQUE_SKIP_NOTE)
 
     # DRY-RUN passes the proposed text in notes; surface it explicitly.
+    is_dry_run = any(note == "DRY-RUN: no files written" for note in result.notes)
     for note in result.notes:
         if note == "DRY-RUN: no files written":
             lines.append("(dry run: no files written)")
@@ -313,6 +314,17 @@ def render_sleep_summary(result: SleepResult) -> str:
             lines.append("--- proposed state.md ---")
             lines.append(note[len("proposed_state_md:\n") :])
             lines.append("--- end ---")
+
+    # Friendly closing with next-step hints. Sleep was felt as abrupt
+    # without it — the run produced real artefacts and the user should
+    # know what to read. Skip on dry-run (nothing was actually written).
+    if not is_dry_run:
+        lines.append("")
+        lines.append(f"Read what's new: remory state {result.topic_name}")
+        if result.review_path is not None:
+            lines.append(f"Read the critic's notes: remory review {result.topic_name}")
+        lines.append("")
+        lines.append("See you soon.")
 
     return "\n".join(lines) + "\n"
 

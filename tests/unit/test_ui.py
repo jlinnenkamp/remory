@@ -186,6 +186,66 @@ def test_render_sleep_summary_success_renders_consolidated_count() -> None:
     assert "/tmp/_review.md" in out
 
 
+def test_render_sleep_summary_success_appends_closing_with_next_step_hints() -> None:
+    """Sleep used to end abruptly at the Review path line. The closing
+    block names the read commands and ends with a short warm sign-off
+    so the run feels finished rather than cut off."""
+    result = SleepResult(
+        status=SleepStatus.SUCCESS,
+        topic_name="job-profile",
+        run_id="run-1",
+        backup_path=Path("/tmp/.bak"),
+        review_path=Path("/tmp/_review.md"),
+        consolidated_count=1,
+        section_outcomes=(),
+        notes=(),
+    )
+    out = render_sleep_summary(result)
+    assert "Read what's new: remory state job-profile" in out
+    assert "Read the critic's notes: remory review job-profile" in out
+    assert "See you soon." in out
+
+
+def test_render_sleep_summary_success_no_review_omits_critic_hint_but_keeps_signoff() -> None:
+    """When the schema's default_depth is single_pass (or critique
+    failed), there's no _review.md to read — the closing should omit
+    the critic-read line but still print the state-read line and the
+    sign-off."""
+    result = SleepResult(
+        status=SleepStatus.SUCCESS,
+        topic_name="workout",
+        run_id="run-1",
+        backup_path=Path("/tmp/.bak"),
+        review_path=None,
+        consolidated_count=1,
+        section_outcomes=(),
+        notes=(),
+    )
+    out = render_sleep_summary(result)
+    assert "Read what's new: remory state workout" in out
+    assert "Read the critic's notes" not in out
+    assert "See you soon." in out
+
+
+def test_render_sleep_summary_dry_run_skips_closing_signoff() -> None:
+    """Dry-run didn't actually write anything; the warm "See you soon."
+    closing would be misleading."""
+    result = SleepResult(
+        status=SleepStatus.SUCCESS,
+        topic_name="workout",
+        run_id="run-1",
+        backup_path=None,
+        review_path=None,
+        consolidated_count=1,
+        section_outcomes=(),
+        notes=("DRY-RUN: no files written", "proposed_state_md:\n# foo\n"),
+    )
+    out = render_sleep_summary(result)
+    assert "(dry run: no files written)" in out
+    assert "See you soon." not in out
+    assert "Read what's new" not in out
+
+
 def test_render_sleep_summary_no_pending_emits_nothing_to_do_line() -> None:
     result = SleepResult(
         status=SleepStatus.NO_PENDING,
