@@ -1,6 +1,7 @@
 # ADR 0009: Subprocess to the local claude CLI is the default backend
 
-**Status:** Accepted. Foundational decision from build spec §2.
+**Status:** Accepted (foundational).
+**Date:** 2026-05-16.
 
 ## Context
 
@@ -9,10 +10,10 @@ user's existing local `claude` CLI as a subprocess, (b) call the
 Anthropic Messages API directly via the SDK, or (c) build a custom
 client over the SDK with no `claude` binary involved.
 
-This ADR records the reasoning behind a decision that was settled in
-`INSTRUCTIONS.md` §2 and §8 rather than deliberated in a PR. The
-backend default is locked; the Alternatives section below does the real
-work of explaining why the rejected paths are worse.
+This ADR records the reasoning behind a foundational design decision;
+the backend default is locked at the project level, not deliberated
+per-PR. The Alternatives section below does the real work of explaining
+why the rejected paths are worse.
 
 The decision: `ClaudeCodeBackend` is the default. It wraps the local
 `claude` binary as a subprocess — `subprocess.run(["claude"], cwd=...)`
@@ -104,11 +105,8 @@ the recommended path.
 
 ## References
 
-- `INSTRUCTIONS.md` §2 (the locked decisions table — the "LLM backend
-  (default)" and "LLM backend (stub)" rows), §6 (the `remory doctor`
-  ordering that puts `claude` binary + auth before any topic check), §8
-  (the `Backend` protocol contract and the two implementations), §10
-  (the Claude Code subagent and hook surfaces this backend choice
-  depends on).
+- `docs/architecture.md` "Backend abstraction" — the prose-level
+  explanation of the `Backend` protocol and how `ClaudeCodeBackend`
+  satisfies it.
 - ADR-0006 — the wizard depends on this backend being live; its
   preflight check is the recovery surface when the precondition fails.

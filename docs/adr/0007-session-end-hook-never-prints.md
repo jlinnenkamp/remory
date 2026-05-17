@@ -1,6 +1,7 @@
 # ADR 0007: SessionEnd hook never prints; the chat surface owns the nudge
 
-**Status:** Accepted. Decided in Phase 6.
+**Status:** Accepted.
+**Date:** 2026-05-14.
 
 ## Context
 
@@ -37,9 +38,8 @@ the pending count is already past threshold.
 
 The hook still does everything else — captures the transcript, writes
 the raw entry, bumps `pending_count` and `last_chat` — but it does not
-write to stdout or stderr. Errors emit structured log records (memory
-`feedback_silently_means_logged`); the user-visible surface is the
-chat command's nudge or `remory doctor`.
+write to stdout or stderr. Errors emit structured log records; the
+user-visible surface is the chat command's nudge or `remory doctor`.
 
 This decision interacts with ADR-0002:
 
@@ -89,10 +89,5 @@ user sees the nudge on their next `remory chat`.
 
 ## References
 
-- Phase 6 consolidated plan §5.14 (INSTRUCTIONS.md §10 edit), §8.1
-  (SessionEnd policy table, "NEVER print threshold nudge" entry),
-  §11.1 (`test_session_end_hook_never_prints_threshold_nudge_when_pending_crosses_threshold`).
 - ADR-0002 — chat vs. SessionEnd raw-write coordination (load-bearing
   on the write side; this ADR is the stdout-side companion).
-- Memory: `feedback_silently_means_logged` — the hook's silence at the
-  UI layer is intentional; its structured logs are the audit trail.

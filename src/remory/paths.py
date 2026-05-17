@@ -98,8 +98,8 @@ def refuse_if_inside_source_tree(candidate: Path) -> None:
 
 
 # Topic names: lowercase ASCII letters, digits, ``-``, ``_``; must start with
-# letter or digit. Mirrors the constraint in §2 of INSTRUCTIONS.md and keeps
-# topic directories portable across case-insensitive filesystems.
+# letter or digit. Keeps topic directories portable across case-insensitive
+# filesystems.
 _TOPIC_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 

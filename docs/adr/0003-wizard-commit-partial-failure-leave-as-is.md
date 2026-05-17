@@ -1,11 +1,7 @@
 # ADR 0003: wizard COMMIT partial-failure policy
 
-**Status:** Accepted. Decided in Phase 4. Implemented in Phase 5 wizard.
-
-> Note on numbering: the consolidated Phase 4 plan refers to this as
-> "ADR 0002". `0001` was already taken by the fsync-on-Darwin ADR
-> (Phase 1a), so the chat ↔ SessionEnd ADR landed as `0002` and this
-> one as `0003`.
+**Status:** Accepted.
+**Date:** 2026-05-10.
 
 ## Context
 

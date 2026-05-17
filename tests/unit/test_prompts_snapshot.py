@@ -6,8 +6,8 @@ template, regenerate the snapshot; the diff in review is the audit trail.
 
 Section-isolation regression test: ``test_render_merge_prompt_isolates_section``
 checks that rendering one section's merge prompt does not leak content from
-another section. This is the load-bearing architectural invariant from
-INSTRUCTIONS.md §7. Do not weaken this test.
+another section. This is the load-bearing architectural invariant of the
+project (see ADR-0008). Do not weaken this test.
 """
 # ruff: noqa: E501
 # Justification: the golden-string snapshots below are byte-stable copies of
@@ -246,7 +246,7 @@ def test_render_extract_prompt_stricter_differs_measurably() -> None:
 
 
 def test_render_merge_prompt_isolates_section() -> None:
-    """Section-isolation regression test (INSTRUCTIONS.md §7).
+    """Section-isolation regression test (see ADR-0008).
 
     Rendering one section's merge prompt must not contain the title or
     current-text of any other section in the same schema. The prompt sees

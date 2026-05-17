@@ -1,6 +1,7 @@
 # ADR 0012: User data lives at $XDG_DATA_HOME/remory/, never inside the source tree
 
-**Status:** Accepted. Foundational decision from build spec §2.
+**Status:** Accepted (foundational).
+**Date:** 2026-05-16.
 
 ## Context
 
@@ -12,12 +13,10 @@ not test fixture data; it is the user's evolving second brain. Where
 on disk it lives is an architectural question with privacy and
 developer-ergonomics consequences.
 
-This ADR records the reasoning behind a decision that was settled in
-`INSTRUCTIONS.md` §2 (the "Data directory" row), §3 (repository
-layout), and §4 (data directory layout) rather than deliberated in a
-PR. The data-directory location is locked; the Alternatives section
-below does the real work of explaining why the rejected paths are
-worse.
+This ADR records the reasoning behind a foundational design decision;
+the data-directory location is locked at the project level, not
+deliberated per-PR. The Alternatives section below does the real work
+of explaining why the rejected paths are worse.
 
 The decision: Remory resolves its data directory via `platformdirs`,
 which yields `$XDG_DATA_HOME/remory/` on Linux (and the corresponding
@@ -74,16 +73,15 @@ A test that simply omits the override falls through to the
 platformdirs default, which lives outside the repo by construction,
 so the floor is reachable even when fixtures forget the override.
 
-The dev-time versus production-time `.claude/` distinction called out
-in `CLAUDE.md` is a direct consequence of this rule. The `.claude/`
-directory committed to the repo contains dev-time subagents (architect,
-implementer, reviewer) used while building Remory. The `.claude/`
-directory `remory init` materialises into the user's data directory
-contains production-time subagents (extractor, merger, critic, wizard)
-used while running Remory. They are two artefacts at two paths,
-serving two audiences. The rule that user data lives outside the repo
-is what makes this separation enforceable rather than merely
-conventional.
+The two-`.claude/`-trees rule is a direct consequence of this ADR.
+Production subagent definitions live in
+`src/remory/data_templates/.claude/agents/` and ship to end users via
+`remory init` (which materialises them into `<data_dir>/.claude/`).
+The dev-time `.claude/agents/` a contributor's tooling might create at
+the repo root is gitignored. Two trees, two audiences — confusing them
+(for example, dropping a production subagent into the repo-root
+`.claude/agents/` instead of the package data templates) ships dev
+tooling to users on the next release.
 
 A user backing up their data backs up `$XDG_DATA_HOME/remory/`. A user
 versioning their data in a private git repository points that repo at
@@ -125,12 +123,6 @@ their data; a user wiping their data does not touch the install.
 
 ## References
 
-- `INSTRUCTIONS.md` §2 (the "Data directory" row of the locked
-  decisions table — `$XDG_DATA_HOME/remory/`, resolved via
-  `platformdirs`, "Never inside the repo."), §3 (repository layout,
-  which places no `data/` directory in the source tree), §4 (the
-  full per-user data-directory layout this ADR governs), §9 (the
-  `REMORY_DATA_DIR` env var and the `[paths] data_dir` config knob
-  the resolver honours).
-- `CLAUDE.md` — the dev-time versus production-time `.claude/`
-  paragraph; the separation described there follows from this rule.
+- `docs/architecture.md` "File layout" — the user-on-disk layout this
+  ADR governs; "What lives where" — the source-tree-vs-data-dir
+  cheatsheet that encodes the rule.

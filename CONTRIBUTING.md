@@ -1,6 +1,6 @@
 # Contributing to Remory
 
-Remory is a small, opinionated project. The build specification in [`INSTRUCTIONS.md`](INSTRUCTIONS.md) is the source of truth for what goes in and what stays out, and the operating manual in [`CLAUDE.md`](CLAUDE.md) is the source of truth for how the work is done. Read both before opening a non-trivial PR.
+Remory is a small, opinionated project. Read [`docs/architecture.md`](docs/architecture.md) for the design and the ADRs in [`docs/adr/`](docs/adr/) for the load-bearing decisions before opening a non-trivial PR.
 
 ## Section isolation — the one rule that is not negotiable
 
@@ -38,10 +38,8 @@ Tests that need to drive a conversation use the `fake_claude` script, placed fir
 
 To add a new topic schema (built-in or user), see [`docs/schemas.md`](docs/schemas.md). The short version: YAML, sections declared in order, optional `append_only` per section, defaults for tone and strictness, and an optional `wizard_questions` block that the first-run wizard reads. Built-in schemas live in `src/remory/schemas_builtin/` and are reserved against user override; user schemas live in `$XDG_CONFIG_HOME/remory/schemas/`.
 
-## Phased build order
+## Scope and the ADR process
 
-The repository follows the phased build order in [`INSTRUCTIONS.md` §14](INSTRUCTIONS.md). v0.1 ships at the end of Phase 7. New features that do not fit the spec are not in scope for v0.1 — open an issue describing the use case and we can talk about a later version.
+v0.1 is the current release. New features that touch load-bearing project state go through the ADR process below.
 
-## Architecture decision records
-
-Significant decisions go in `docs/adr/` as numbered markdown files. The foundational decisions from build spec §2 are recorded in ADRs 0008-0012; gap-driven decisions surfaced during the build are 0001-0007. If your PR changes a load-bearing property (anything in `INSTRUCTIONS.md` §2 or the section-isolation rule above), it needs an ADR. Look at [`docs/adr/0006-wizard-claude-driven-interview.md`](docs/adr/0006-wizard-claude-driven-interview.md) for the format.
+Significant decisions go in `docs/adr/` as numbered markdown files. The foundational decisions are recorded in ADRs 0008-0012; gap-driven decisions surfaced during the build are 0001-0007. If your PR changes a load-bearing property — anything that touches section isolation, the data-dir-outside-repo rule, the backend protocol, the schema format, or the prompt-ownership boundary — it needs an ADR. Look at [`docs/adr/0006-wizard-claude-driven-interview.md`](docs/adr/0006-wizard-claude-driven-interview.md) for the format.

@@ -1,6 +1,7 @@
 # ADR 0005: Claude template backups — flat layout, no v0.1 cleanup
 
-**Status:** Accepted. Decided in Phase 6.
+**Status:** Accepted.
+**Date:** 2026-05-14.
 
 ## Context
 
@@ -39,8 +40,7 @@ wizard / refresher owns this space; per-topic `.backups/` is reserved
 for the sleep pipeline (`state.md` rotation, Phase 3).
 
 Writes go through `remory.atomic.atomic_write_bytes` — durability
-discipline does not exempt the backup itself
-(`project_phase3_backup_atomicity` applies).
+discipline does not exempt the backup itself.
 
 **Newer-on-disk template — warn but skip.**
 
@@ -110,11 +110,5 @@ treat any field report as a signal to add the flag.
 
 ## References
 
-- Phase 6 consolidated plan §4.4 (.bak path layout), §5.6 (settings.json
-  hook command), §9 (refresh policy table), §16 (escalation rule).
-- ADR 0001 — `os.fsync` baseline; atomic-write discipline applies to
-  every disk write, backups included
-  (`project_phase3_backup_atomicity`).
-- Memory: `feedback_wire_format_enums` — the template-version stamp is
-  a wire-format contract; the newer-on-disk policy is its first
-  forward-compat consequence.
+- ADR-0001 — `os.fsync` baseline; atomic-write discipline applies to
+  every disk write, backups included.

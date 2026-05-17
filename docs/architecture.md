@@ -1,10 +1,10 @@
 # Architecture
 
-This document is the prose-level companion to `INSTRUCTIONS.md`. It explains how Remory is shaped, why the load-bearing pieces are shaped the way they are, and where the boundaries between subsystems sit. Read `INSTRUCTIONS.md` first if you have not — this document references its sections rather than re-deriving them. For schema-format details, see [`schemas.md`](./schemas.md).
+This document explains how Remory is shaped, why the load-bearing pieces are shaped the way they are, and where the boundaries between subsystems sit. For schema-format details, see [`schemas.md`](./schemas.md). For specific architectural decisions, see the [ADRs](./adr/).
 
 ## North star
 
-Remory is a terminal-based, local-first second brain. The user converses with Claude about topics they return to — a job search, a workout plan, a coaching arc — and a deliberate "sleep" cycle distils those raw conversations into a sectioned `state.md` that becomes the canonical memory for each topic. Nothing leaves the user's machine except the conversation content that goes to Anthropic via Claude Code, the same as if the user had typed into `claude` directly. There is no cloud, no account, no telemetry, no nag. See `INSTRUCTIONS.md` §1 for the north star statement in the spec.
+Remory is a terminal-based, local-first second brain. The user converses with Claude about topics they return to — a job search, a workout plan, a coaching arc — and a deliberate "sleep" cycle distils those raw conversations into a sectioned `state.md` that becomes the canonical memory for each topic. Nothing leaves the user's machine except the conversation content that goes to Anthropic via Claude Code, the same as if the user had typed into `claude` directly. There is no cloud, no account, no telemetry, no nag.
 
 ## The two flows
 
@@ -39,9 +39,9 @@ Two flows carry almost all of the runtime behaviour: the chat flow, which produc
       print friendly suggestion to run `remory sleep`
 ```
 
-The chat surface launches Claude Code as a child process in the topic's working directory. The model sees `state.md` and the per-topic `CLAUDE.md` as context, and a `PreToolUse` hook on `Edit` and `Write` rejects any attempt to modify `state.md` mid-session. `state.md` is read-only outside sleep — this is enforced by hook, not just by prompt instruction, so a misbehaving model still cannot corrupt the canonical state. The persona for the conversation comes from the schema's `persona:` field, interpolated into the topic's `CLAUDE.md` at topic creation.
+The chat surface launches Claude Code as a child process in the topic's working directory. The model sees `state.md` and the per-topic `CLAUDE.md` as context, and a `PreToolUse` hook on `Edit` and `Write` rejects any attempt to modify `state.md` mid-session. `state.md` is read-only outside sleep — this is enforced by hook, not just by prompt instruction, so a misbehaving model still cannot corrupt the canonical state. The persona for the conversation comes from the topic's schema (a YAML file declaring the topic type's sections, persona, and behavioural knobs — see [`schemas.md`](./schemas.md)), interpolated into the topic's `CLAUDE.md` at topic creation.
 
-After the user exits cleanly, the parent process reads the JSONL transcript Claude Code wrote under `~/.claude/projects/<encoded-cwd>/`, normalises it into a markdown raw entry, and writes it under `raw/<year>/`. The parent always writes; a SessionEnd hook (Phase 6) covers the parent-crash window as a safety net, deferring via a non-blocking lock probe when the parent is still holding the lock. The coordination policy is documented in [ADR-0002](./adr/0002-chat-vs-session-end-hook-raw-write-coordination.md). The `pending_count` in `meta.yaml` increments by one, and if it crosses the schema's `trigger_threshold`, the CLI prints a single friendly line suggesting `remory sleep`. The suggestion is never modal — nothing nags.
+After the user exits cleanly, the parent process reads the JSONL transcript Claude Code wrote under `~/.claude/projects/<encoded-cwd>/`, normalises it into a *raw entry* — a single dated markdown file capturing one conversation — and writes it under `raw/<year>/`. The parent always writes; a SessionEnd hook (Phase 6) covers the parent-crash window as a safety net, deferring via a non-blocking lock probe when the parent is still holding the lock. The coordination policy is documented in [ADR-0002](./adr/0002-chat-vs-session-end-hook-raw-write-coordination.md). The `pending_count` in `meta.yaml` increments by one, and if it crosses the schema's `trigger_threshold`, the CLI prints a single friendly line suggesting `remory sleep`. The suggestion is never modal — nothing nags.
 
 ### Sleep flow
 
@@ -97,7 +97,7 @@ The cost is real: a topic with five mergeable sections pays five round trips dur
 
 ## Sleep pipeline stages
 
-The sleep pipeline (`INSTRUCTIONS.md` §7) runs three stages: extract, merge, and — when configured — critique. Each invokes the LLM backend headlessly with a bundled prompt template.
+The sleep pipeline runs three stages: extract, merge, and — when configured — critique. Each invokes the LLM backend headlessly with a bundled prompt template.
 
 **Extract** reads all pending raw entries for the topic and the schema, and emits a structured JSON document of candidate updates keyed by section id. Each candidate carries the text of the proposed update and a pointer to the raw file it came from. The extractor is the only stage that sees the full raw input; it is also the only stage that needs to, because its job is to route. If the JSON is malformed, the pipeline retries once with stricter instructions; on second failure, sleep aborts cleanly and the state remains untouched.
 
@@ -113,23 +113,35 @@ The protocol's shape is the small surface every backend has to satisfy: a `chat(
 
 ## The Claude Code orchestration layer
 
-Remory is not just a Python program that calls an LLM. It is a harness on top of Claude Code, which means most of its production-runtime behaviour is configured through subagents, slash commands, and hooks that live in a `.claude/` directory the user's machine reads from. The full surface is described in `INSTRUCTIONS.md` §10.
+Remory is not just a Python program that calls an LLM. It is a harness on top of Claude Code, which means most of its production-runtime behaviour is configured through subagents, slash commands, and hooks that live in a `.claude/` directory the user's machine reads from.
 
 **Subagents.** Four production subagents drive the runtime: `extractor` produces candidate updates from raw entries (read-only); `merger` rewrites a single section given its current text and candidates (no tools); `critic` writes `_review.md` from the full updated state (read + restricted write); `wizard` runs the first-run conversation that produces `about-me.md` and the initial per-topic `meta.yaml` (read + write). Each subagent is a markdown file with YAML frontmatter naming the agent and its allowed tools, followed by the system prompt. The Python orchestrator addresses them by name via `claude --agent <name>`.
 
 **Slash commands and hooks.** Slash commands are user-invoked shortcuts that work inside a chat session: `/sleep`, `/state`, `/recent`, `/review`. Two hooks carry policy. A `PreToolUse` hook rejects any `Edit` or `Write` against `state.md` during chat — the state is updated only by sleep, never by chat — so the read-only property survives a misbehaving model. A `SessionEnd` hook fires when the chat session ends and acts as a safety net for the raw-entry write; it defers to the chat parent when the parent is still holding the topic lock, scanning by `session_id` for an existing raw entry as a belt-and-braces idempotency floor. The coordination policy is recorded in [ADR-0002](./adr/0002-chat-vs-session-end-hook-raw-write-coordination.md).
 
-**Two `.claude/` directories, two audiences.** This is the footgun. The `.claude/` directory committed to the Remory source repository contains _dev-time_ subagents: `architect` (proposes module layouts), `implementer` (writes code to a settled plan), `reviewer` (does a phase-end code-review pass). These are used by contributors while building Remory. They are not shipped to users. They never run against user data. Separately, when an end user runs `remory init`, the bundled production templates are materialised into `<data_dir>/.claude/` — that is where the _production-time_ subagents (`extractor`, `merger`, `critic`, `wizard`) live, along with the slash commands and hooks above. Two different `.claude/` directories, at two different paths, serving two different audiences. Confusing them — for example, by putting a production subagent definition in the repo's `.claude/agents/` — silently breaks the separation. The rule that user data lives outside the repo (see [ADR-0012](./adr/0012-data-dir-outside-repo.md)) is what makes this separation enforceable rather than merely conventional. `CLAUDE.md`'s "dev-time vs production-time `.claude/`" paragraph is the canonical statement of this rule.
-
-**Where the templates live in the source tree.** The bundled `.claude/agents/*.md`, `.claude/commands/*.md`, and `.claude/settings.json` that `remory init` writes into the user's data directory are sourced from `src/remory/` (the package data). They are not in the repo's `.claude/`. They are not user-editable: `remory init --refresh` rewrites them from the package copy on demand, and `remory doctor` notes drift in the meantime. The reasoning is in [ADR-0011](./adr/0011-bundled-prompts.md).
+**Where the templates live in the source tree.** The bundled `.claude/agents/*.md`, `.claude/commands/*.md`, and `.claude/settings.json` that `remory init` writes into the user's data directory are sourced from `src/remory/` (the package data). They are not user-editable: `remory init --refresh` rewrites them from the package copy on demand, and `remory doctor` notes drift in the meantime. The reasoning is in [ADR-0011](./adr/0011-bundled-prompts.md). The rule that they belong in the package and not at the repo root is recorded in [ADR-0012](./adr/0012-data-dir-outside-repo.md) (the two-`.claude/`-trees rule).
 
 ## Why no telemetry
 
-Remory ships with no telemetry, no analytics, no crash reporting, no phone-home behaviour. This is not a setting that can be flipped on; it is an architectural property of the project. The threat model is single-user, single-machine, and the user has already chosen which conversations to send to Anthropic via Claude Code. Layering "anonymous usage metrics" on top of that would be inserting a second telemetry surface the user did not opt into for a benefit they did not ask for. `INSTRUCTIONS.md` §15 names this exclusion explicitly, alongside the other things v0.1 deliberately does not do.
+Remory ships with no telemetry, no analytics, no crash reporting, no phone-home behaviour. This is not a setting that can be flipped on; it is an architectural property of the project. The threat model is single-user, single-machine, and the user has already chosen which conversations to send to Anthropic via Claude Code. Layering "anonymous usage metrics" on top of that would be inserting a second telemetry surface the user did not opt into for a benefit they did not ask for. The full list of design contracts that exclude this and similar capabilities is in [What v0.1 excludes](#what-v01-excludes) below.
 
 ## Why no vector DB in v0.1
 
-The recency-bias problem Remory exists to solve is solved by _structure_, not by retrieval. Section isolation, plus an `evidence_log` section that accumulates dated pointers back to raw entries, plus the critic's cross-section pass, is the v0.1 answer. Adding a vector database to "improve" merge would pull in a v0.3-territory dependency (`INSTRUCTIONS.md` §15) to fix a problem the structural answer already addresses. v0.3 may revisit semantic recall as a distinct feature — there are plausible uses, like surfacing forgotten raw entries during chat — but the v0.1 answer to the memory problem is intentionally structural, and that is the design contract.
+The recency-bias problem Remory exists to solve is solved by _structure_, not by retrieval. Section isolation, plus an `evidence_log` section that accumulates dated pointers back to raw entries, plus the critic's cross-section pass, is the v0.1 answer. Adding a vector database to "improve" merge would pull in a dependency v0.1 deliberately excludes to fix a problem the structural answer already addresses. v0.3 may revisit semantic recall as a distinct feature — there are plausible uses, like surfacing forgotten raw entries during chat — but the v0.1 answer to the memory problem is intentionally structural, and that is the design contract.
+
+## What v0.1 excludes
+
+The product scope is narrow by design. v0.1 does not ship:
+
+- **A vector database or semantic-recall layer.** Discussed in "Why no vector DB in v0.1" above.
+- **A web UI, Telegram bridge, or any remote server.** Terminal only.
+- **Multi-user support.** Single user, single machine, single config.
+- **Encryption at rest.** `state.md` and raw entries are markdown the user can read in any editor; that readability is a feature, not an oversight.
+- **User-overridable prompts.** Behavioural variation happens through schema knobs. See [ADR-0011](./adr/0011-bundled-prompts.md).
+- **Automated cron scheduling.** `remory sleep --if-due` is the seam for cron, but no cron is wired.
+- **"Smart" auto-consolidation mid-chat.** Sleep is deliberate, manual, and separate from chat.
+
+A request that does not fit this scope is an issue worth opening, not a PR worth merging.
 
 ## Why bundled prompts (no user override)
 
@@ -161,7 +173,7 @@ $XDG_DATA_HOME/remory/
     `-- remory.log
 ```
 
-For the source-repo layout (where `src/remory/` lives, how tests are organised, where the bundled `.claude/` templates sit in the package), see `INSTRUCTIONS.md` §3.
+For the source-repo layout, see the repository root: `src/remory/` is the package; `tests/` is the test suite (unit and integration); `src/remory/data_templates/.claude/` is the bundled production-time Claude Code tree that `remory init` materialises into the user's data directory.
 
 ## Locking and atomicity
 

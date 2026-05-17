@@ -3,8 +3,8 @@
 POSIX ``fcntl.flock(LOCK_EX | LOCK_NB)`` on a per-topic ``.lock`` file. The
 lock is non-reentrant: a second acquisition of the same topic in the same
 process raises :class:`LockBusyError` rather than blocking or silently
-reentering. This is deliberate (see CLAUDE.md / plan): re-entrancy hides
-nested-write bugs.
+reentering. This is deliberate — re-entrancy hides nested-write bugs in
+callers that assume the lock is fresh.
 
 Windows is best-effort and is skipped at the test level. The module imports
 ``fcntl`` lazily so unit tests on Windows do not crash on import — but the

@@ -1,6 +1,7 @@
 # ADR 0011: Prompt templates are bundled with Remory; users tune knobs, not prompts
 
-**Status:** Accepted. Foundational decision from build spec §2.
+**Status:** Accepted (foundational).
+**Date:** 2026-05-16.
 
 ## Context
 
@@ -9,10 +10,10 @@ each driven by an LLM prompt. The wizard (§11) runs another. The
 subagent system prompts in `.claude/agents/` are themselves templates.
 The question is who owns these prompts: Remory, the user, or both.
 
-This ADR records the reasoning behind a decision that was settled in
-`INSTRUCTIONS.md` §2 and §10 rather than deliberated in a PR. The
-prompt-ownership boundary is locked; the Alternatives section below
-does the real work of explaining why the rejected paths are worse.
+This ADR records the reasoning behind a foundational design decision;
+the prompt-ownership boundary is locked at the project level, not
+deliberated per-PR. The Alternatives section below does the real work
+of explaining why the rejected paths are worse.
 
 The decision: prompt templates are bundled with Remory and not
 user-overridable. They live in `src/remory/sleep/prompts.py` (and in
@@ -91,10 +92,9 @@ on-disk enums in the project.
 
 ## References
 
-- `INSTRUCTIONS.md` §2 (the "Prompt templates" row of the locked
-  decisions table — "Bundled, not user-overridable. Per-schema knobs
-  vary tone/strictness within bundled templates."), §7 (the sleep
-  pipeline stages whose prompts this ADR governs), §10 (the
-  `.claude/agents/` templates emitted by `remory init`), §12 (the
-  snapshot test on rendered prompts), §15 (the "No prompt overrides
-  per user" exclusion this ADR formalises).
+- `docs/architecture.md` "Sleep pipeline stages" — the three stages
+  whose prompts this ADR governs.
+- `docs/architecture.md` "What v0.1 excludes" — names the
+  no-prompt-overrides rule this ADR formalises.
+- `tests/unit/test_prompts_snapshot.py` — snapshot tests on rendered
+  prompts; a prompt change is visible in the diff in PR review.

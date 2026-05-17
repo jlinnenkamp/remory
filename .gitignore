@@ -34,3 +34,5 @@ data/
 /.claude/commands/
 /.claude/settings.local.json
 /docs/phases/
+/INSTRUCTIONS.md
+/CLAUDE.md

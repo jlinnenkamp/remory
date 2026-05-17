@@ -1,36 +1,39 @@
 # ADR 0006: Wizard rearchitected as a Claude Code subagent
 
-**Status:** Accepted. Decided in Phase 6.
+**Status:** Accepted.
+**Date:** 2026-05-14.
 
 ## Context
 
-Phase 5 shipped a Python-driven wizard: linear prompt loop in
-`_steps.py`, hand-written `validate_*` functions in `_validators.py`,
-three-strikes counter, and a single LLM call hoisted into the
-orchestrator to compose the "letter" paragraph. The UX worked, but two
-things rubbed against the spec's §11 promise that the wizard "earns its
-warm and a little addictive feel":
+The wizard runs `remory init`'s first-time setup conversation. The
+product contract is that this conversation has one voice — the
+model's — and that the user feels they have met a warm, attentive
+interlocutor rather than filled out a form.
+
+An earlier implementation drove the wizard from Python: a linear
+prompt loop, hand-written validators, a three-strikes counter on bad
+input, and a single LLM call hoisted into the harness to compose a
+"letter" paragraph. The UX worked, but two things were wrong with it:
 
 1. **Two voices.** The Python prompts ("Pick one or more by number,
    separated by commas") and the model paragraph ("Hi Sam. I'll keep
    what you bring me here") read like two different products joined at
-   the seam. The spec asks for one voice, and that voice has to be the
-   model's.
+   the seam. The product contract asks for one voice, and that voice
+   has to be the model's.
 2. **The skip path was a form, not a conversation.** Every option
    question carried an `[s] Skip — use the default ("warm")` line. That
    is what an opinionated form looks like; it is not what a warm
    first-run interview looks like.
 
-A literal reading of `INSTRUCTIONS.md` §11 ("the wizard runs as a single
-Claude Code session driven by the `wizard` subagent, with the harness
-orchestrating turns") says the model owns the conversation, not the
-harness. Phase 5 implemented a stand-in because Claude Code's subagent
-machinery had not yet been wired into the backend; Phase 6 finishes
-that work.
+The harness should own three things only: making sure the session can
+run, validating what the model writes back, and writing files
+atomically. The conversation itself belongs to the model. This ADR
+records the rewrite from the Python-driven stand-in to a single
+`claude --agent wizard` session.
 
 ## Decision
 
-The Phase 6 wizard is a single `claude --agent wizard` session. The
+The wizard is a single `claude --agent wizard` session. The
 harness owns three things:
 
 1. **Preflight.** Reuse the doctor's `_check_claude_binary` and
@@ -48,15 +51,16 @@ harness owns three things:
    `<data_dir>/.remory/wizard-recovery/<utc-iso>/` and aborts with a
    user-facing pointer at that directory.
 3. **The COMMIT block.** Per-topic-atomic writes of `meta.yaml`,
-   `state.md`, `CLAUDE.md`, plus the data-dir `about-me.md`. Preserved
-   verbatim from Phase 5 (ADR-0003 leave-as-is on partial failure,
-   ADR-0004 SIGINT deferral best-effort on Windows). The harness, not
-   the subagent, is the only writer of user-visible files.
+   `state.md`, `CLAUDE.md`, plus the data-dir `about-me.md`. The
+   per-topic-atomic contract is governed by ADR-0003 (leave-as-is on
+   partial failure) and ADR-0004 (SIGINT deferral, best-effort on
+   Windows). The harness, not the subagent, is the only writer of
+   user-visible files.
 
 **`answers.json` wire format.** Pydantic, versioned. `version: 1` is
-the forward-compat hook (memory `feedback_wire_format_enums`); bumping
-the integer is forward-compatible; renaming the key or any Literal
-value requires a migration plan analogous to `RawStatus`.
+the forward-compat hook: bumping the integer is forward-compatible;
+renaming the key or any Literal value requires a migration plan
+analogous to `RawStatus`.
 
 ```json
 {
@@ -77,8 +81,7 @@ of `about-me.md`.
 **One-shot repair, then recovery.** Two attempts total; no third. If
 the model cannot produce valid JSON twice, the harness saves the
 malformed output + `letter.md` + a `validation-error.txt` under a
-timestamped recovery dir. Nothing the user said disappears silently
-(memory `feedback_no_silent_data_loss`).
+timestamped recovery dir. Nothing the user said disappears silently.
 
 **`cwd=data_dir` is load-bearing.** The harness launches
 `claude --agent wizard` with `cwd` set to the data directory root, NOT
@@ -89,7 +92,7 @@ one-line addendum to ADR-0002.
 
 ## Consequences
 
-- The Phase 5 modules `_steps.py`, `_letter.py`, `_validators.py` are
+- The earlier modules `_steps.py`, `_letter.py`, `_validators.py` are
   deleted along with their unit tests
   (`test_wizard_letter.py`, `test_wizard_validators.py`,
   `test_wizard_three_strikes.py`). `WizardThreeStrikesError` is gone
@@ -110,13 +113,12 @@ one-line addendum to ADR-0002.
 - `fake_claude` grows a `wizard_interactive` mode (env-driven; the
   test plants `FAKE_CLAUDE_WIZARD_ANSWERS` + optional
   `FAKE_CLAUDE_WIZARD_FAIL` variants and the fake writes the run-dir
-  files). Real-claude smoke verification is a deferred PR-description
-  checkbox.
+  files).
 
 ## Alternatives considered
 
 - **Keep the Python steps + delegate just the letter call.** The
-  Phase 5 path. Rejected because the seam is the bug — the user feels
+  earlier path. Rejected because the seam is the bug — the user feels
   two voices, not one. Adding more polish to the Python prompts
   doesn't close the gap; it widens the inconsistency.
 - **Headless `claude -p` instead of an interactive session.** Rejected
@@ -141,18 +143,8 @@ one-line addendum to ADR-0002.
 
 ## References
 
-- Phase 6 consolidated plan §6.1 (Pydantic wire surface), §6.2
-  (`_subagent.py` API), §7 (orchestrator pseudocode), §11.1 (named
-  unit tests), §12 (fake_claude wizard_interactive mode).
-- ADR-0002 — chat vs. SessionEnd raw-write coordination; D4 in the
-  Phase 6 plan adds a one-line addendum recording that the wizard's
-  `cwd=data_dir` launch is the wizard-transcript skip mechanism. Do
+- ADR-0002 — chat vs. SessionEnd raw-write coordination. The wizard's
+  `cwd=data_dir` launch is the wizard-transcript skip mechanism — do
   not move the wizard launch dir without re-reading ADR-0002.
-- ADR-0003 — wizard commit partial-failure leave-as-is (preserved
-  verbatim).
-- ADR-0004 — wizard SIGINT Windows best-effort (preserved verbatim).
-- Memory: `feedback_wire_format_enums` (forward-compat plan for
-  Literal values in `answers.json`); `feedback_no_silent_data_loss`
-  (recovery dir on two-strike validation fail);
-  `feedback_silently_means_logged` (preflight refusal still emits a
-  structured log).
+- ADR-0003 — wizard COMMIT partial-failure leave-as-is policy.
+- ADR-0004 — wizard SIGINT Windows best-effort handling.

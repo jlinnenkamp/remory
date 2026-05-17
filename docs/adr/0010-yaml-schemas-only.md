@@ -1,6 +1,7 @@
 # ADR 0010: Topic schemas are declarative YAML, not Python plugins
 
-**Status:** Accepted. Foundational decision from build spec §2.
+**Status:** Accepted (foundational).
+**Date:** 2026-05-16.
 
 ## Context
 
@@ -10,10 +11,10 @@ persona Claude adopts during chat, the sleep depth, the per-topic
 knobs, and the questions the wizard asks during setup. The question is
 in what form this schema is expressed.
 
-This ADR records the reasoning behind a decision that was settled in
-`INSTRUCTIONS.md` §2 and §5 rather than deliberated in a PR. The
-schema format is locked; the Alternatives section below does the real
-work of explaining why the rejected paths are worse.
+This ADR records the reasoning behind a foundational design decision;
+the schema format is locked at the project level, not deliberated
+per-PR. The Alternatives section below does the real work of explaining
+why the rejected paths are worse.
 
 The decision: a schema is a YAML file. Built-in schemas live in
 `src/remory/schemas_builtin/` and are validated against a Pydantic
@@ -97,8 +98,8 @@ tee` away from being installed. This is a property worth preserving.
 
 ## References
 
-- `INSTRUCTIONS.md` §2 (the "Schemas" and "Schema customisation" rows
-  of the locked decisions table), §5 (the full schema spec, including
-  the `job-profile` worked example and the built-in `workout` and
-  `coaching` specifics), §10 (the per-topic `CLAUDE.md` generation
-  that consumes the schema's persona and knobs).
+- `docs/schemas.md` — full schema authoring reference, including
+  per-field semantics, validation rules, and a worked example.
+- `docs/architecture.md` "The Claude Code orchestration layer" —
+  describes how the per-topic `CLAUDE.md` consumes a schema's persona
+  and knobs.

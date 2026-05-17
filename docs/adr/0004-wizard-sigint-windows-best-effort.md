@@ -1,6 +1,7 @@
 # ADR 0004: wizard SIGINT handling — POSIX strict, Windows best-effort
 
-**Status:** Accepted. Decided in Phase 5.
+**Status:** Accepted.
+**Date:** 2026-05-10.
 
 ## Context
 
@@ -79,8 +80,6 @@ than being deferred. In practice the window is small (single-file fsync
 
 ## References
 
-- Phase 5 consolidated plan §5 (SIGINT handling) — binding contract
-  for the deferral mechanism and the user-facing messages.
-- ADR 0003 — partial-failure leave-as-is policy; doctor is the
+- ADR-0003 — partial-failure leave-as-is policy; doctor is the
   recovery surface for both partial-disk-failure and partial-Ctrl+C
   outcomes.

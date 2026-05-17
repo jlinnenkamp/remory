@@ -1,6 +1,7 @@
 # ADR 0008: Section-isolated consolidation (one LLM call per section, never the whole state)
 
-**Status:** Accepted. Foundational decision from build spec §1.
+**Status:** Accepted (foundational).
+**Date:** 2026-05-16.
 
 ## Context
 
@@ -11,10 +12,10 @@ recent tokens — rewrites the old material in the colour of the new.
 Across enough cycles the older context bleaches out. This is the
 specific failure mode Remory exists to refuse.
 
-This ADR records the reasoning behind a decision that was settled in
-`INSTRUCTIONS.md` §1 and §7 rather than deliberated in a PR. The merge
-step's shape is locked; the Alternatives section below does the real
-work of explaining why the rejected paths are worse.
+This ADR records the reasoning behind a foundational design decision;
+the merge step's shape is locked at the project level, not deliberated
+per-PR. The Alternatives section below does the real work of explaining
+why the rejected paths are worse.
 
 The architectural answer Remory commits to: the merge step (§7 stage 2)
 runs once per section. Each call's context window contains that
@@ -81,10 +82,12 @@ ADR.
   call. Rejected on two grounds: it solves the wrong problem
   (extraction is already structured per section by the extractor; the
   merge step's locality is the architectural property under discussion)
-  and it introduces the vector-database dependency `INSTRUCTIONS.md`
-  §15 explicitly defers to v0.3. Vector recall is a different product;
-  pulling it in to "improve" merge would launder a v0.3 dependency into
-  v0.1 to fix a problem that section-isolated merging already solves.
+  and it introduces a vector-database dependency that v0.1 deliberately
+  excludes (see the "What v0.1 excludes" list in
+  `docs/architecture.md`). Vector recall is a different product;
+  pulling it in to "improve" merge would launder a v0.3-territory
+  dependency into v0.1 to fix a problem that section-isolated merging
+  already solves.
 - **Sequential merge with carry-over (section N's output visible to
   section N+1).** A halfway position: each section sees only itself,
   but reads the freshly merged previous sections from the working copy.
@@ -96,10 +99,7 @@ ADR.
 
 ## References
 
-- `INSTRUCTIONS.md` §1 (the recency-bias paragraph), §7 stage 2 (the
-  merge step, with the explicit "the LLM cannot see other sections.
-  This is non-negotiable" sentence), §15 (the no-vector-DB exclusion
-  this ADR depends on), §16 (the glossary entry for "section
-  isolation").
-- `CONTRIBUTING.md` (Phase 7, Commit 3) — names section isolation as
-  the project's one non-negotiable rule.
+- `CONTRIBUTING.md` — names section isolation as the project's one
+  non-negotiable rule.
+- `docs/architecture.md` "Section isolation" — the prose-level
+  explanation of why this is shaped the way it is.

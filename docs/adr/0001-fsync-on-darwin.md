@@ -1,6 +1,7 @@
 # ADR 0001: fsync semantics on Darwin
 
-**Status:** Accepted (Phase 1a).
+**Status:** Accepted.
+**Date:** 2026-05-09.
 
 **Decision.** `atomic.py` uses stdlib `os.fsync` only. We do not call `fcntl.F_FULLFSYNC` on Darwin in Phase 1.
 
