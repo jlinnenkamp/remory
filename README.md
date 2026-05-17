@@ -31,9 +31,9 @@ Your data lives in `$XDG_DATA_HOME/remory/` (typically `~/.local/share/remory/` 
 
 **`workout`** — A living workout plan plus session logs. After each conversation about what you actually did in the gym, sleep updates the plan, progressions, and notes-and-injuries sections. Single-pass merge by default (no critic stage) because workout state is short and self-correcting.
 
-**`coaching`** — Q&A from coaching sessions. Insights accumulate across themes over time, and the critic stage flags contradictions between sessions ("two weeks ago you wanted X; this week you want Y") so the pattern is visible to you rather than smoothed over. Tone defaults to warm and gentle.
+**`coaching`** — Q&A from coaching sessions. Insights accumulate across themes over time, and the critic stage flags contradictions between sessions ("two weeks ago you wanted X; this week you want Y") so the pattern is visible to you rather than smoothed over.
 
-**`job-profile`** — Interviews, self-reflection, and notes from people you have spoken with about your career direction. Sleep produces an evolving picture of your optimal job profile: skills, values, hard constraints, options considered, current leaning, and an evidence log that traces every claim back to a raw conversation. Tone defaults to warm.
+**`job-profile`** — Interviews, self-reflection, and notes from people you have spoken with about your career direction. Sleep produces an evolving picture of your optimal job profile: skills, values, hard constraints, options considered, current leaning, and an evidence log that traces every claim back to a raw conversation.
 
 ## Data and privacy
 
