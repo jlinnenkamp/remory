@@ -39,9 +39,7 @@ Two flows carry almost all of the runtime behaviour: the chat flow, which produc
       print friendly suggestion to run `remory sleep`
 ```
 
-The chat surface launches Claude Code as a child process in the topic's working directory. The model sees `state.md` and the per-topic `CLAUDE.md` as context, and a `PreToolUse` hook on `Edit` and `Write` rejects any attempt to modify `state.md` mid-session. `state.md` is read-only outside sleep — this is enforced by hook, not just by prompt instruction, so a misbehaving model still cannot corrupt the canonical state. The persona for the conversation comes from the topic's schema (a YAML file declaring the topic type's sections, persona, and behavioural knobs — see [`schemas.md`](./schemas.md)), interpolated into the topic's `CLAUDE.md` at topic creation.
-
-After the user exits cleanly, the parent process reads the JSONL transcript Claude Code wrote under `~/.claude/projects/<encoded-cwd>/`, normalises it into a *raw entry* — a single dated markdown file capturing one conversation — and writes it under `raw/<year>/`. The parent always writes; a SessionEnd hook (Phase 6) covers the parent-crash window as a safety net, deferring via a non-blocking lock probe when the parent is still holding the lock. The coordination policy is documented in [ADR-0002](./adr/0002-chat-vs-session-end-hook-raw-write-coordination.md). The `pending_count` in `meta.yaml` increments by one, and if it crosses the schema's `trigger_threshold`, the CLI prints a single friendly line suggesting `remory sleep`. The suggestion is never modal — nothing nags.
+What the diagram omits: the JSONL transcript Claude Code writes lives under `~/.claude/projects/<encoded-cwd>/`; the chat parent always writes the *raw entry* (one dated markdown file per conversation) under `raw/<year>/`, with a SessionEnd hook as a safety net for the parent-crash window — see [ADR-0002](./adr/0002-chat-vs-session-end-hook-raw-write-coordination.md). The threshold suggestion fires at most once per crossing; nothing nags. The per-topic `CLAUDE.md` carries the persona from the topic's schema — a YAML file declaring sections, persona, and behavioural knobs (see [`schemas.md`](./schemas.md)).
 
 ### Sleep flow
 
@@ -81,19 +79,13 @@ After the user exits cleanly, the parent process reads the JSONL transcript Clau
   print summary + path to _review.md; release lock
 ```
 
-Sleep is the consolidation cycle. It takes a backup of `state.md` first — non-negotiable — and then runs the extract, merge, and (optionally) critique stages described below. The whole pipeline runs inside the same topic lock that `remory chat` would acquire, so the two flows cannot interleave on the same topic. The atomic write of `state.md` is temp-file plus rename plus fsync, with the durability nuance documented in [ADR-0001](./adr/0001-fsync-on-darwin.md).
-
-The load-bearing property of this flow is in the merge stage: one LLM call per section, with no other section's text in context. The next section explains why this is shaped as it is.
+The pipeline acquires the same topic lock that `remory chat` would, so the two flows cannot interleave. The atomic write of `state.md` is temp-file plus rename plus fsync — durability nuance on Darwin in [ADR-0001](./adr/0001-fsync-on-darwin.md).
 
 ## Section isolation
 
-Section isolation is the architectural property Remory is built around. Each section of `state.md` is updated by a dedicated LLM call that sees only that section's current text and the candidate updates relevant to it. Other sections are not in the model's context window. They cannot drift, because the model literally cannot see them. The decision and its rejected alternatives are recorded in [ADR-0008](./adr/0008-section-isolated-merges.md).
+Each section of `state.md` is updated by a dedicated LLM call that sees only that section's current text and the candidate updates relevant to it. Other sections are not in the model's context window. The decision and rejected alternatives are in [ADR-0008](./adr/0008-section-isolated-merges.md).
 
-The naive shortcut — one LLM call for the whole state, with the prompt instructing the model to "rewrite section X without touching section Y" — fails for two reasons. First, recency bias is a property of the context window's contents, not of instructions about those contents. A model with the entire `state.md` in its context will pull the older sections toward the colour of the newer inputs, no matter how firmly the prompt asks it not to. Second, even if the model behaved, the project would lose falsifiability: a reviewer reading the code cannot prove, by inspecting the call site, that drift did not happen on a given sleep. The product would become "the model usually behaves." That is the failure mode of every memory system Remory exists to differ from.
-
-This is why the merge stage is one Python loop issuing one backend call per section. It is not a single prompt with sections delimited by headings. The shape lives in `sleep/orchestrator.py`, not in the prompts. A prompt that says "rewrite only section X" but ships the full `state.md` in context does not satisfy this rule, and a contributor adding such a thing has broken the architectural property the rest of the design rests on.
-
-The cost is real: a topic with five mergeable sections pays five round trips during merge, plus extract and (when configured) critique. We accept that cost because falsifiability is what makes the design defensible. The reviewer can read the merger's call site, confirm the prompt construction, and assert by inspection that cross-section drift is physically impossible. A "smart" merger that promises not to drift is not the same artefact.
+Why a Python loop and not a single prompt with section delimiters: a reviewer reading the code cannot prove, by inspecting the call site, that cross-section drift did not happen on a given sleep. The product becomes "the model usually behaves," which is the failure mode of every memory system Remory exists to differ from. With one call per section, drift is physically impossible — a reviewer confirms this by reading the orchestrator's loop, not by trusting the model. The shape lives in `sleep/orchestrator.py`, not in the prompts; a prompt that says "rewrite only section X" but ships the full `state.md` in context does not satisfy this rule.
 
 ## Sleep pipeline stages
 
@@ -113,43 +105,37 @@ The protocol's shape is the small surface every backend has to satisfy: a `chat(
 
 ## The Claude Code orchestration layer
 
-Remory is not just a Python program that calls an LLM. It is a harness on top of Claude Code, which means most of its production-runtime behaviour is configured through subagents, slash commands, and hooks that live in a `.claude/` directory the user's machine reads from.
+Production-time behaviour is configured through subagents, slash commands, and hooks in `<data_dir>/.claude/` — materialised from the package on `remory init`.
 
 **Subagents.** Four production subagents drive the runtime: `extractor` produces candidate updates from raw entries (read-only); `merger` rewrites a single section given its current text and candidates (no tools); `critic` writes `_review.md` from the full updated state (read + restricted write); `wizard` runs the first-run conversation that produces `about-me.md` and the initial per-topic `meta.yaml` (read + write). Each subagent is a markdown file with YAML frontmatter naming the agent and its allowed tools, followed by the system prompt. The Python orchestrator addresses them by name via `claude --agent <name>`.
 
-**Slash commands and hooks.** Slash commands are user-invoked shortcuts that work inside a chat session: `/sleep`, `/state`, `/recent`, `/review`. Two hooks carry policy. A `PreToolUse` hook rejects any `Edit` or `Write` against `state.md` during chat — the state is updated only by sleep, never by chat — so the read-only property survives a misbehaving model. A `SessionEnd` hook fires when the chat session ends and acts as a safety net for the raw-entry write; it defers to the chat parent when the parent is still holding the topic lock, scanning by `session_id` for an existing raw entry as a belt-and-braces idempotency floor. The coordination policy is recorded in [ADR-0002](./adr/0002-chat-vs-session-end-hook-raw-write-coordination.md).
+**Slash commands and hooks.** Slash commands are user-invoked shortcuts inside a chat session: `/sleep`, `/state`, `/recent`, `/review`. Two hooks carry policy. A `PreToolUse` hook rejects any `Edit` or `Write` against `state.md` during chat, so the read-only property survives a misbehaving model. A `SessionEnd` hook is a safety net for the raw-entry write; it defers to the chat parent when the parent still holds the topic lock, scanning by `session_id` for an existing raw entry as a belt-and-braces idempotency floor — see [ADR-0002](./adr/0002-chat-vs-session-end-hook-raw-write-coordination.md).
 
-**Where the templates live in the source tree.** The bundled `.claude/agents/*.md`, `.claude/commands/*.md`, and `.claude/settings.json` that `remory init` writes into the user's data directory are sourced from `src/remory/` (the package data). They are not user-editable: `remory init --refresh` rewrites them from the package copy on demand, and `remory doctor` notes drift in the meantime. The reasoning is in [ADR-0011](./adr/0011-bundled-prompts.md). The rule that they belong in the package and not at the repo root is recorded in [ADR-0012](./adr/0012-data-dir-outside-repo.md) (the two-`.claude/`-trees rule).
+**Where the templates live.** Sourced from `src/remory/data_templates/`, materialised into `<data_dir>/.claude/` by `remory init`. Not user-editable: `remory init --refresh` rewrites from the package copy and `remory doctor` notes drift in the meantime. See [ADR-0011](./adr/0011-bundled-prompts.md) for why bundled, [ADR-0012](./adr/0012-data-dir-outside-repo.md) for the two-`.claude/`-trees rule.
 
-## Why no telemetry
+## What v0.1 doesn't do
 
-Remory ships with no telemetry, no analytics, no crash reporting, no phone-home behaviour. This is not a setting that can be flipped on; it is an architectural property of the project. The threat model is single-user, single-machine, and the user has already chosen which conversations to send to Anthropic via Claude Code. Layering "anonymous usage metrics" on top of that would be inserting a second telemetry surface the user did not opt into for a benefit they did not ask for. The full list of design contracts that exclude this and similar capabilities is in [What v0.1 excludes](#what-v01-excludes) below.
+The scope is narrow by design.
 
-## Why no vector DB in v0.1
+**No telemetry, analytics, or crash reporting.** The user has already chosen which conversations to send to Anthropic via Claude Code; a second telemetry surface they didn't opt into for a benefit they didn't ask for is not a feature.
 
-The recency-bias problem Remory exists to solve is solved by _structure_, not by retrieval. Section isolation, plus an `evidence_log` section that accumulates dated pointers back to raw entries, plus the critic's cross-section pass, is the v0.1 answer. Adding a vector database to "improve" merge would pull in a dependency v0.1 deliberately excludes to fix a problem the structural answer already addresses. v0.3 may revisit semantic recall as a distinct feature — there are plausible uses, like surfacing forgotten raw entries during chat — but the v0.1 answer to the memory problem is intentionally structural, and that is the design contract.
+**No vector database, embeddings, or semantic recall.** The recency-bias problem is solved by structure — section isolation, an `evidence_log` accumulating dated pointers back to raw entries, the critic's cross-section pass. v0.3 may revisit semantic recall as a distinct feature.
 
-## What v0.1 excludes
+**No user-overridable prompts.** Behavioural variation happens through the per-schema `tone` and `strictness` knobs the bundled templates interpolate. A user who needs different prompts forks the repo: forks are honest about being a different product; in-place edits are invisible from the outside and turn every support request into "what does your prompt look like." Full reasoning in [ADR-0011](./adr/0011-bundled-prompts.md).
 
-The product scope is narrow by design. v0.1 does not ship:
+**Also out of scope:**
 
-- **A vector database or semantic-recall layer.** Discussed in "Why no vector DB in v0.1" above.
-- **A web UI, Telegram bridge, or any remote server.** Terminal only.
-- **Multi-user support.** Single user, single machine, single config.
-- **Encryption at rest.** `state.md` and raw entries are markdown the user can read in any editor; that readability is a feature, not an oversight.
-- **User-overridable prompts.** Behavioural variation happens through schema knobs. See [ADR-0011](./adr/0011-bundled-prompts.md).
-- **Automated cron scheduling.** `remory sleep --if-due` is the seam for cron, but no cron is wired.
-- **"Smart" auto-consolidation mid-chat.** Sleep is deliberate, manual, and separate from chat.
+- A web UI, Telegram bridge, or remote server — terminal only.
+- Multi-user support — single user, single machine, single config.
+- Encryption at rest — `state.md` and raw entries are markdown the user reads in any editor; readability is a feature.
+- Automated cron — `remory sleep --if-due` is the seam, but no cron is wired.
+- "Smart" auto-consolidation mid-chat — sleep is manual, separate from chat.
 
-A request that does not fit this scope is an issue worth opening, not a PR worth merging.
-
-## Why bundled prompts (no user override)
-
-Prompt templates live in `src/remory/sleep/prompts.py` and in the bundled `.claude/agents/*.md` templates that `remory init` materialises into the user's data directory. They are not user-overridable. Users tune behaviour through the per-schema `tone` and `strictness` knobs, which the templates interpolate. The contract is: same Remory version installed, same prompts running, same behavioural envelope across users. A user who genuinely needs different prompts forks the repo — that is an acceptable, deliberate outcome. The cost of accepting prompt forks downstream is much lower than the cost of accepting prompt edits in-place: forks are honest about being a different product; in-place edits are invisible from the outside and turn every support request into "what does your prompt look like." The full reasoning is in [ADR-0011](./adr/0011-bundled-prompts.md).
+A request outside this scope is an issue worth opening, not a PR worth merging.
 
 ## File layout
 
-The user-on-disk layout is reproduced here for reference. The data directory lives at `$XDG_DATA_HOME/remory/` on Linux (and the platform-appropriate equivalent on macOS), resolved via `platformdirs`. It is never inside the source tree — see [ADR-0012](./adr/0012-data-dir-outside-repo.md).
+The data directory lives at `$XDG_DATA_HOME/remory/` on Linux (the platform-appropriate equivalent on macOS), resolved via `platformdirs`; never inside the source tree — see [ADR-0012](./adr/0012-data-dir-outside-repo.md).
 
 ```
 $XDG_DATA_HOME/remory/
