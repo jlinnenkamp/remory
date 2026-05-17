@@ -140,13 +140,10 @@ def _stage_repair_prompt(run_dir: Path, error_message: str) -> Path:
     """Write a small repair-prompt file the subagent can read on retry.
 
     Contract: the orchestrator writes ``<run_dir>/repair_prompt.txt``
-    containing a human-readable description of what failed. The wizard
-    subagent template currently does not document a hard-coded read of
-    this file — the harness embeds the error message via the
-    ``--resume`` flow (the wizard sees the validation error in the
-    resumed conversation). The file exists so future revisions of the
-    subagent template (or operators inspecting the run dir) have the
-    error in a stable, byte-pinned location.
+    containing a human-readable description of what failed. The repair
+    initial_prompt (see :func:`_build_repair_prompt`) tells the
+    subagent to Read this file, so the validation error is surfaced
+    regardless of whether ``--resume`` preserves prior context.
     """
     target = run_dir / REPAIR_PROMPT_FILE_NAME
     body = (
@@ -157,6 +154,49 @@ def _stage_repair_prompt(run_dir: Path, error_message: str) -> Path:
     )
     target.write_text(body, encoding="utf-8")
     return target
+
+
+# ---------------------------------------------------------------------------
+# Initial-prompt construction
+# ---------------------------------------------------------------------------
+
+
+def _build_initial_prompt(run_dir: Path) -> str:
+    """Compose the first-turn prompt the harness sends to the wizard subagent.
+
+    The wizard.md template tells the model *what* to do (six beats);
+    this prompt tells it *where* its run-directory artefacts live and
+    that it speaks first. The path can't be baked into wizard.md
+    because that template is installed once at ``remory init`` time and
+    the run-dir is staged fresh per launch.
+    """
+    return (
+        f"Your run directory for this session is {run_dir}.\n"
+        f"- Read {run_dir}/manifest.json for the list of built-in topic schemas.\n"
+        f"- Read {run_dir}/schemas/<name>.yaml for each topic's persona, sections, "
+        "knobs, and wizard questions.\n"
+        "\n"
+        "Begin the first-run interview now: greet the user warmly, then walk them "
+        "through the six beats in your instructions. Speak first."
+    )
+
+
+def _build_repair_prompt(run_dir: Path) -> str:
+    """Compose the repair-round first-turn prompt.
+
+    The harness has already written ``repair_prompt.txt`` into the run
+    directory; the prompt below tells the subagent to Read it before
+    re-writing ``answers.json`` + ``letter.md``. Sent alongside
+    ``resume=True`` so the prior conversation is still in context, but
+    self-sufficient if claude drops the subagent across the resume.
+    """
+    return (
+        f"Your previous attempt produced an invalid answers.json. The validation "
+        f"error is at {run_dir}/{REPAIR_PROMPT_FILE_NAME} — read it.\n"
+        "\n"
+        f"Then re-write {run_dir}/answers.json and {run_dir}/letter.md per your "
+        "wizard instructions, drawing on the conversation you just had with the user."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -281,9 +321,16 @@ def run_wizard(
         run_dir = Path(run_dir_str)
         stage_run_dir(run_dir)
 
+        initial_prompt = _build_initial_prompt(run_dir)
+
         # First attempt.
         try:
-            first_result = eff_backend.chat(cwd=eff_data_dir, agent="wizard", resume=False)
+            first_result = eff_backend.chat(
+                cwd=eff_data_dir,
+                agent="wizard",
+                resume=False,
+                initial_prompt=initial_prompt,
+            )
         except KeyboardInterrupt:
             sys.stderr.write(S.PRE_COMMIT_INTERRUPT_MESSAGE)
             raise
@@ -302,13 +349,14 @@ def run_wizard(
                 extra={"exception_type": type(exc1).__name__, "wizard_step": "parse"},
             )
             _stage_repair_prompt(run_dir, exc1.message)
-            # TODO(phase-6-smoke): if --resume drops the agent, switch to a fresh
-            # launch with the validation error as the leading prompt. The PR-
-            # description smoke checkbox §14 determines the outcome — either this
-            # TODO converts to a code change, or it gets deleted. The implementer
-            # does NOT choose at write time.
+            repair_prompt = _build_repair_prompt(run_dir)
             try:
-                second_result = eff_backend.chat(cwd=eff_data_dir, agent="wizard", resume=True)
+                second_result = eff_backend.chat(
+                    cwd=eff_data_dir,
+                    agent="wizard",
+                    resume=True,
+                    initial_prompt=repair_prompt,
+                )
             except KeyboardInterrupt:
                 # Mid-repair Ctrl+C still means nothing committed; dump
                 # what we have so far so the user's prior turns aren't

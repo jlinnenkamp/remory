@@ -203,7 +203,14 @@ class Backend(Protocol):
        session unless ``resume=True``.
     """
 
-    def chat(self, *, cwd: Path, resume: bool = False, agent: str | None = None) -> ChatResult: ...
+    def chat(
+        self,
+        *,
+        cwd: Path,
+        resume: bool = False,
+        agent: str | None = None,
+        initial_prompt: str | None = None,
+    ) -> ChatResult: ...
     def headless(
         self,
         *,

@@ -136,8 +136,22 @@ class _AuthOKBackend:
     def __init__(self) -> None:
         self.chat_calls: list[dict[str, object]] = []
 
-    def chat(self, *, cwd: Path, resume: bool = False, agent: str | None = None) -> ChatResult:
-        self.chat_calls.append({"cwd": cwd, "resume": resume, "agent": agent})
+    def chat(
+        self,
+        *,
+        cwd: Path,
+        resume: bool = False,
+        agent: str | None = None,
+        initial_prompt: str | None = None,
+    ) -> ChatResult:
+        self.chat_calls.append(
+            {
+                "cwd": cwd,
+                "resume": resume,
+                "agent": agent,
+                "initial_prompt": initial_prompt,
+            }
+        )
         raise KeyboardInterrupt
 
     def headless(

@@ -80,7 +80,14 @@ class _AuthOKBackend:
     def __init__(self) -> None:
         self.chat_calls: list[dict[str, object]] = []
 
-    def chat(self, *, cwd: Path, resume: bool = False, agent: str | None = None) -> ChatResult:
+    def chat(
+        self,
+        *,
+        cwd: Path,
+        resume: bool = False,
+        agent: str | None = None,
+        initial_prompt: str | None = None,
+    ) -> ChatResult:
         raise NotImplementedError  # subclasses override
 
     def headless(
@@ -150,8 +157,22 @@ class _ScriptedChatBackend(_AuthOKBackend):
         self._script: list[object] = list(script)
         self._run_dir_holder = run_dir_holder
 
-    def chat(self, *, cwd: Path, resume: bool = False, agent: str | None = None) -> ChatResult:
-        self.chat_calls.append({"cwd": cwd, "resume": resume, "agent": agent})
+    def chat(
+        self,
+        *,
+        cwd: Path,
+        resume: bool = False,
+        agent: str | None = None,
+        initial_prompt: str | None = None,
+    ) -> ChatResult:
+        self.chat_calls.append(
+            {
+                "cwd": cwd,
+                "resume": resume,
+                "agent": agent,
+                "initial_prompt": initial_prompt,
+            }
+        )
         if not self._script:
             raise AssertionError("ScriptedChatBackend.chat: script exhausted")
         step = self._script.pop(0)
@@ -389,6 +410,79 @@ def test_run_wizard_retries_once_when_first_answers_malformed_then_commits(
     assert backend.chat_calls[1]["resume"] is True
     # COMMIT succeeded.
     assert (data_dir / "topics" / "workout").is_dir()
+
+
+def test_run_wizard_first_chat_initial_prompt_contains_run_dir_path_and_speak_first(
+    isolated_xdg: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    patched_preflight: None,
+) -> None:
+    """The first-attempt chat() carries an initial_prompt that names the run
+    directory and instructs the subagent to speak first. Without this,
+    interactive `claude --agent wizard` drops the user at an empty prompt
+    waiting for input (real bug fixed in this commit)."""
+    data_dir = isolated_xdg / "data"
+    run_dir = isolated_xdg / "run"
+    holder: dict[str, Path] = {}
+    backend = _ScriptedChatBackend(
+        script=[_make_chat_step(side_effect=lambda rd: _write_valid(rd))],
+        run_dir_holder=holder,
+    )
+
+    with _owned_tempdir_factory(monkeypatch, run_dir, holder):
+        run_wizard(
+            backend_factory=lambda: backend,
+            console=_quiet_console(),
+            data_dir=data_dir,
+        )
+
+    assert len(backend.chat_calls) == 1
+    initial_prompt = backend.chat_calls[0]["initial_prompt"]
+    assert isinstance(initial_prompt, str)
+    # Path appears at least once so the subagent knows where its
+    # manifest + schemas live.
+    assert str(run_dir) in initial_prompt
+    # Kick-off language: the wizard must take the first turn.
+    assert "Speak first" in initial_prompt
+
+
+def test_run_wizard_repair_chat_initial_prompt_points_at_repair_prompt_file(
+    isolated_xdg: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    patched_preflight: None,
+) -> None:
+    """When the first attempt fails parse, the repair chat() carries an
+    initial_prompt that points at <run_dir>/repair_prompt.txt so the
+    subagent reads the validation error even if --resume drops the agent
+    context."""
+    data_dir = isolated_xdg / "data"
+    run_dir = isolated_xdg / "run"
+    holder: dict[str, Path] = {}
+
+    def write_malformed(rd: Path) -> None:
+        (rd / "answers.json").write_text("{not json", encoding="utf-8")
+        (rd / "letter.md").write_text("partial letter\n", encoding="utf-8")
+
+    backend = _ScriptedChatBackend(
+        script=[
+            _make_chat_step(side_effect=write_malformed),
+            _make_chat_step(side_effect=lambda rd: _write_valid(rd)),
+        ],
+        run_dir_holder=holder,
+    )
+
+    with _owned_tempdir_factory(monkeypatch, run_dir, holder):
+        run_wizard(
+            backend_factory=lambda: backend,
+            console=_quiet_console(),
+            data_dir=data_dir,
+        )
+
+    assert len(backend.chat_calls) == 2
+    repair_prompt = backend.chat_calls[1]["initial_prompt"]
+    assert isinstance(repair_prompt, str)
+    assert str(run_dir / "repair_prompt.txt") in repair_prompt
+    assert "answers.json" in repair_prompt
 
 
 def test_run_wizard_dumps_recovery_and_raises_when_second_attempt_fails(

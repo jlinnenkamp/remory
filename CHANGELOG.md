@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `remory init` wizard now actually starts. v0.1.0 shipped a bundled
+  `wizard.md` template containing the literal string `{{run_dir}}` as a
+  placeholder for the per-launch run-directory path; the harness never
+  substituted it, so the wizard subagent either sat at an empty prompt
+  waiting for user input or improvised a filesystem-wide `find /` for
+  its manifest. The harness now passes the run-directory path and a
+  speak-first instruction to `claude` via an initial-prompt argument on
+  every wizard launch (and on the repair-round launch), and the
+  bundled `wizard.md` no longer hard-codes any path placeholder.
+  Upgrading from v0.1.0 requires `remory init --refresh` so the
+  installed `<data_dir>/.claude/agents/wizard.md` picks up the new
+  bytes; `remory doctor` will flag the drift in the meantime.
+
 ### Changed
 
 - `remory doctor` now colours each status glyph when stdout is a TTY:
@@ -14,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stay uncoloured so the eye lands on rows that need attention.
   `NO_COLOR`, `ui.colour = "never"`, and non-TTY output all suppress
   the colour as before.
+- `Backend.chat()` protocol gains an `initial_prompt: str | None =
+  None` keyword argument. When set, the prompt is appended as the
+  trailing positional argument to the underlying chat invocation
+  (`claude --agent <agent> "<initial_prompt>"`). `remory chat` passes
+  `None` (unchanged behaviour); the wizard launcher is the first and
+  only caller in v0.1 that sets it. Custom backend implementations
+  must accept the new kwarg.
 
 ## [0.1.0] - 2026-05-16
 

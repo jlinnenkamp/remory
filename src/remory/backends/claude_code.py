@@ -63,7 +63,14 @@ class ClaudeCodeBackend:
 
     # ------------------------------------------------------------------ chat
 
-    def chat(self, *, cwd: Path, resume: bool = False, agent: str | None = None) -> ChatResult:
+    def chat(
+        self,
+        *,
+        cwd: Path,
+        resume: bool = False,
+        agent: str | None = None,
+        initial_prompt: str | None = None,
+    ) -> ChatResult:
         """Launch interactive ``claude`` session in ``cwd``, blocking until exit.
 
         ``resume=True`` passes ``--resume`` (the underlying ``claude`` flag);
@@ -73,14 +80,31 @@ class ClaudeCodeBackend:
         ``agent`` selects a Claude Code subagent (e.g. ``"wizard"``).
         Passes ``--agent <name>`` when set; ``None`` means no agent flag,
         which is the chat_cmd default.
+
+        ``initial_prompt`` is appended as the trailing positional arg to
+        ``claude``, which seeds the session with a first turn from the
+        user-side (the model responds to it before yielding the prompt
+        back). Used by the wizard launcher to communicate the run-
+        directory path and a "begin the interview" instruction in one go,
+        so the subagent has both context and a kick-off without the user
+        having to type anything first.
         """
         argv: list[str] = [self._binary]
         if agent is not None:
             argv.extend(["--agent", agent])
         if resume:
             argv.append("--resume")
+        if initial_prompt is not None:
+            argv.append(initial_prompt)
 
-        _log.info("chat: argv=%r cwd=%s resume=%s agent=%s", argv, cwd, resume, agent)
+        _log.info(
+            "chat: argv=%r cwd=%s resume=%s agent=%s initial_prompt=%s",
+            argv,
+            cwd,
+            resume,
+            agent,
+            "<set>" if initial_prompt is not None else None,
+        )
 
         start = time.monotonic()
         try:
