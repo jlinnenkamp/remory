@@ -13,7 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `about-me.md`) under the data dir before running init. Intended
   for testing fresh-install flows; the destructive scope is printed
   to stdout. Rejected when combined with `--refresh` (which only
-  touches templates, not user data).
+  touches templates, not user data). Also force-refreshes the bundled
+  `.claude/` templates so a single `--reset` picks up any new template
+  bytes shipped with the current Remory version.
+- `remory sleep` now writes per-stage progress lines to stderr so the
+  user can see what's happening during the 1-2 minute pipeline run.
+  Format: one line per stage boundary — "Extracting candidate updates
+  from N entries...", "Merging section: <id>...", "Appending N to
+  section: <id>..." for append-only sections with candidates, and
+  "Critiquing the new state.md...". Stderr (not stdout) keeps the
+  final summary stream clean for piping. The orchestrator's `sleep()`
+  function gains a `progress: Callable[[str], None] | None` keyword
+  argument; tests pass `None`.
 
 ### Fixed
 

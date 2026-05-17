@@ -46,7 +46,7 @@ Schema-drift detection (bidirectional walk):
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -241,6 +241,7 @@ def sleep(
     backend: Backend,
     dry_run: bool = False,
     lock_timeout: float = 0.0,
+    progress: Callable[[str], None] | None = None,
 ) -> SleepResult:
     """Run the sleep pipeline for ``topic_dir``.
 
@@ -276,6 +277,14 @@ def sleep(
     preview), recorded in :attr:`SleepResult.notes`, and turns the run
     into ``SUCCESS_WITH_WARNINGS``. The pre-sleep ``.bak`` is the
     recovery path.
+
+    Progress reporting: ``progress`` is a per-stage callback used by
+    the CLI to surface what's happening during a long-running sleep
+    (sleep can easily take 1-2 minutes for a topic with several
+    mergeable sections). Called with one short status string per stage
+    boundary: extract start, per-section merge/append start, critique
+    start. ``None`` (the default) disables progress output — tests
+    pass ``None``; the CLI provides a stderr-writing callback.
     """
     run_started_at = datetime.now(UTC)
     run_id = _format_run_id(run_started_at)
@@ -292,6 +301,7 @@ def sleep(
             run_id=run_id,
             run_started_at=run_started_at,
             state_path=state_path,
+            progress=progress,
         )
 
 
@@ -303,8 +313,14 @@ def _sleep_under_lock(
     run_id: str,
     run_started_at: datetime,
     state_path: Path,
+    progress: Callable[[str], None] | None,
 ) -> SleepResult:
     """Step 2 onward. Caller must hold the topic lock."""
+
+    def _emit(msg: str) -> None:
+        if progress is not None:
+            progress(msg)
+
     topic = load_topic(topic_dir)
 
     # Step 2: pending entries.
@@ -328,6 +344,10 @@ def _sleep_under_lock(
     # Step 3: extract.
     extract_extra = {"sleep_run_id": run_id, "topic": topic_dir.name, "stage": "extract"}
     _log.info("sleep: extract: %d pending entries", len(pending), extra=extract_extra)
+    _emit(
+        f"Extracting candidate updates from {len(pending)} pending "
+        f"{'entry' if len(pending) == 1 else 'entries'}..."
+    )
     try:
         extract_result = extract(backend=backend, topic=topic, pending=pending)
     except ExtractError as exc:
@@ -430,6 +450,7 @@ def _sleep_under_lock(
                     len(candidates),
                     extra=per_section_extra,
                 )
+                _emit(f"Appending {len(candidates)} to section: {section.id}...")
                 try:
                     new_bodies[section.id] = append_only_merge(
                         section=section,
@@ -481,6 +502,7 @@ def _sleep_under_lock(
             revise,
             extra=per_section_extra,
         )
+        _emit(f"Merging section: {section.id}...")
         try:
             new_bodies[section.id] = merge_section(
                 backend=backend,
@@ -541,6 +563,7 @@ def _sleep_under_lock(
             "topic": topic_dir.name,
             "stage": "critique",
         }
+        _emit("Critiquing the new state.md...")
         try:
             write_review(
                 backend=backend,

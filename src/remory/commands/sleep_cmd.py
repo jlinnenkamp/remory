@@ -36,6 +36,18 @@ def _default_backend_factory() -> Backend:
     return ClaudeCodeBackend()
 
 
+def _stderr_progress(msg: str) -> None:
+    """Write one progress line to stderr.
+
+    Sleep can easily take a minute or two — the CLI defaults to writing
+    per-stage status lines to stderr so the user sees something is
+    happening. Stderr (not stdout) keeps the final summary stream clean
+    for piping.
+    """
+    sys.stderr.write(msg + "\n")
+    sys.stderr.flush()
+
+
 def _existing_topics(topics_root: Path) -> tuple[str, ...]:
     if not topics_root.is_dir():
         return ()
@@ -84,7 +96,12 @@ def run_sleep(
         raise TopicMissingError(topic_name, existing_topics=_existing_topics(topics_root))
 
     backend = factory()
-    result = sleep(topic_dir=topic_dir, backend=backend, dry_run=dry_run)
+    result = sleep(
+        topic_dir=topic_dir,
+        backend=backend,
+        dry_run=dry_run,
+        progress=_stderr_progress,
+    )
     print_sleep_summary(result)
 
 
@@ -129,7 +146,12 @@ def _run_if_due(
     results: list[tuple[str, str]] = []
     for topic_dir in eligible:
         try:
-            result: SleepResult = sleep(topic_dir=topic_dir, backend=backend, dry_run=dry_run)
+            result: SleepResult = sleep(
+                topic_dir=topic_dir,
+                backend=backend,
+                dry_run=dry_run,
+                progress=_stderr_progress,
+            )
         except LockBusyError as exc:
             results.append((topic_dir.name, f"FAIL (lock busy: {exc})"))
             continue

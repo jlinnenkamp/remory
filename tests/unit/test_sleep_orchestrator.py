@@ -250,6 +250,45 @@ def test_sleep_merge_and_critique_writes_review_md(
     assert "Looks consistent." in result.review_path.read_text(encoding="utf-8")
 
 
+def test_sleep_invokes_progress_callback_with_per_stage_status_strings(
+    seeded_topic: SeededTopic,
+) -> None:
+    """Progress callback fires once per stage boundary so the CLI can
+    surface activity during a long-running sleep. Without this the user
+    sits in front of a silent terminal for 1-2 minutes wondering whether
+    anything is happening."""
+    captured: list[str] = []
+    backend = FakeBackend(headless_results=_all_responses_for_full_pipeline(seeded_topic))
+    sleep(
+        topic_dir=seeded_topic.topic_dir,
+        backend=backend,
+        progress=captured.append,
+    )
+
+    joined = "\n".join(captured)
+    # Extract fires first with the pending count.
+    assert any("Extracting" in line and "2" in line for line in captured), joined
+    # Each LLM-merged section gets a "Merging section: <id>..." line.
+    assert any("Merging section: skills_and_strengths" in line for line in captured), joined
+    assert any("Merging section: hard_constraints" in line for line in captured), joined
+    # append_only sections get an "Appending ... to section: <id>..." line
+    # when they have candidates (evidence_log here).
+    assert any("Appending" in line and "evidence_log" in line for line in captured), joined
+    # Critique fires last.
+    assert any("Critiquing" in line for line in captured), joined
+
+
+def test_sleep_does_not_call_progress_callback_when_none(
+    seeded_topic: SeededTopic,
+) -> None:
+    """Default callback is None; orchestrator must not crash trying to
+    invoke it. Tests run with progress=None as the common path."""
+    backend = FakeBackend(headless_results=_all_responses_for_full_pipeline(seeded_topic))
+    # Smoke: this would raise if the orchestrator forgot to guard the
+    # None callback.
+    sleep(topic_dir=seeded_topic.topic_dir, backend=backend, progress=None)
+
+
 def test_sleep_critique_failure_returns_success_with_warnings_no_review_md_state_md_still_written(
     seeded_topic: SeededTopic,
 ) -> None:
