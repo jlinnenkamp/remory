@@ -430,28 +430,10 @@ def cmd_init(
 ) -> None:
     """Create a new topic, or refresh bundled assets.
 
-    Three shapes (R3 dispatch order, binding):
-
-    * ``remory init`` — interactive wizard (no args).
-    * ``remory init <name> --schema <schema>`` — non-interactive stub.
-    * ``remory init <name>`` — error: pass ``--schema`` or run with no
-      args. **Existing-topic check fires first** so a typo'd existing
-      topic name produces D7 "already exists" guidance, not an
-      R3 redirect.
-
-    Plus the Phase 6 ``--refresh`` shape:
-
-    * ``remory init --refresh [--force] [--dry-run]`` — re-install
-      bundled ``.claude/`` templates and regenerate per-topic
-      ``CLAUDE.md``. ``--dry-run`` without ``--refresh`` is an error
-      (exit 2).
-
-    Plus the ``--reset`` shape (testing helper):
-
-    * ``remory init --reset`` — wipe user data (topics/, .remory/,
-      about-me.md) under the data dir, then run the wizard. Combine
-      with ``<name> --schema`` for a non-interactive reset+create.
-      Rejected with ``--refresh`` (which doesn't touch user data).
+    No args runs the first-run wizard. Pass a topic name plus --schema to
+    create one topic non-interactively. --refresh re-installs the bundled
+    .claude/ templates and per-topic CLAUDE.md. --reset wipes user data
+    before init (testing helper, destructive).
     """
     try:
         if dry_run and not refresh:
