@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/banner.png" alt="Remory" width="800">
+</p>
+
 # Remory
 
 > A second brain that actually remembers.
