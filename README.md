@@ -1,8 +1,6 @@
 # Remory
 
-<p align="center">
-  <img src=".github/banner.png?v=3" alt="Remory — a second brain that actually remembers" width="800">
-</p>
+<div align="center"><img src=".github/banner.png?v=3" alt="Remory — a second brain that actually remembers" width="800"></div>
 
 [![CI](https://github.com/jlinnenkamp/remory/actions/workflows/ci.yml/badge.svg)](https://github.com/jlinnenkamp/remory/actions/workflows/ci.yml)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](LICENSE)
