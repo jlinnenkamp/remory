@@ -184,7 +184,6 @@ Two distinct delivery patterns appear in the table below. Schemas and sleep-pipe
 | Production slash command definitions | `src/remory/` package data | `<data_dir>/.claude/commands/*.md` (materialised by `remory init`) |
 | Production hook settings | `src/remory/` package data | `<data_dir>/.claude/settings.json` (materialised by `remory init`) |
 | Production hook scripts | `src/remory/` package data | paths declared in `<data_dir>/.claude/settings.json` |
-| Dev-time subagent definitions | `.claude/agents/architect.md`, `implementer.md`, `reviewer.md` | (not shipped; dev-only) |
 | Per-topic `state.md` | (never in repo) | `<data_dir>/topics/<name>/state.md` |
 | Per-topic `CLAUDE.md` | (never in repo) | `<data_dir>/topics/<name>/CLAUDE.md` |
 | Raw entries | (never in repo) | `<data_dir>/topics/<name>/raw/<year>/*.md` |

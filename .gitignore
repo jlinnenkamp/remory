@@ -26,3 +26,11 @@ data/
 *.brain/
 .env
 .env.*
+
+# Dev-time AI-assisted build artefacts — kept locally, never published.
+# Anchored to the repo root so we do NOT match the production-time
+# .claude/ tree shipped inside src/remory/data_templates/.
+/.claude/agents/
+/.claude/commands/
+/.claude/settings.local.json
+/docs/phases/
