@@ -1,7 +1,7 @@
 # Remory
 
 <p align="center">
-  <img src=".github/banner.png" alt="Remory — a second brain that actually remembers" width="800">
+  <img src=".github/banner.png?v=3" alt="Remory — a second brain that actually remembers" width="800">
 </p>
 
 [![CI](https://github.com/jlinnenkamp/remory/actions/workflows/ci.yml/badge.svg)](https://github.com/jlinnenkamp/remory/actions/workflows/ci.yml)
