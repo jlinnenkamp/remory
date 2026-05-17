@@ -1,6 +1,6 @@
 # Schemas
 
-This document is the reference for Remory's topic schemas. A schema defines what a topic type looks like: its sections, the persona Claude adopts during chat, the sleep depth, the per-topic knobs, and the questions the wizard asks during `remory init`. If you are authoring a custom schema, read this top to bottom. For the prose-level explanation of how schemas fit into the runtime, see [`architecture.md`](./architecture.md).
+This document is the reference for Remory's topic schemas. A schema defines what a topic type looks like: its sections, the persona Claude adopts during chat, the sleep depth, the per-topic knobs, and the questions the wizard asks during `remory init`. For the prose-level explanation of how schemas fit into the runtime, see [`architecture.md`](./architecture.md).
 
 ## Overview
 
@@ -24,7 +24,7 @@ The four scalar top-level fields are `name`, `version`, `description`, and `pers
 
 **`description`** is human-readable prose explaining what this topic type is for. It appears in `remory topics` output and in `remory init`'s topic-picker. Use a YAML block scalar (`description: |`) for anything longer than a sentence. The audience is the user, not the model.
 
-**`persona`** is the voice Claude adopts during _chat sessions_ for this topic. It is interpolated into the per-topic `CLAUDE.md` that Remory writes at topic creation. Important: this is _not_ a system prompt for the whole pipeline. The sleep-pipeline prompts are bundled with Remory and not user-overridable — see [ADR-0011](./adr/0011-bundled-prompts.md). The `persona:` field only flavours interactive chat. Keep it a few sentences; longer personas dilute. The built-in `workout.yaml` persona is a good length reference.
+**`persona`** is the voice Claude adopts during _chat sessions_ for this topic. It is interpolated into the per-topic `CLAUDE.md` that Remory writes at topic creation. It is not a system prompt for the whole pipeline — the sleep-pipeline prompts are bundled with Remory and not user-overridable (see [ADR-0011](./adr/0011-bundled-prompts.md)). The `persona:` field only flavours interactive chat. Keep it to a few sentences; longer personas dilute. The built-in `workout.yaml` persona is a good length reference.
 
 ## Sections
 

@@ -115,8 +115,6 @@ Production-time behaviour is configured through subagents, slash commands, and h
 
 ## What v0.1 doesn't do
 
-The scope is narrow by design.
-
 **No telemetry, analytics, or crash reporting.** The user has already chosen which conversations to send to Anthropic via Claude Code; a second telemetry surface they didn't opt into for a benefit they didn't ask for is not a feature.
 
 **No vector database, embeddings, or semantic recall.** The recency-bias problem is solved by structure — section isolation, an `evidence_log` accumulating dated pointers back to raw entries, the critic's cross-section pass. v0.3 may revisit semantic recall as a distinct feature.

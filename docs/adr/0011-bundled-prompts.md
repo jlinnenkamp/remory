@@ -46,13 +46,12 @@ in the diff.
 
 ## Consequences
 
-A user who genuinely needs different prompts forks the repo. This is
-an acceptable outcome and a deliberate one. The cost of accepting
-prompt forks downstream is much lower than the cost of accepting
-prompt edits in-place: a fork is honest about being a different
-product; an in-place edit is invisible from the outside, breaks
-reproducibility, and turns every support request into "what does your
-prompt look like."
+A user who needs different prompts forks the repo. The cost of
+accepting prompt forks downstream is much lower than the cost of
+accepting prompt edits in-place: a fork is honest about being a
+different product; an in-place edit is invisible from the outside,
+breaks reproducibility, and turns every support request into "what
+does your prompt look like."
 
 The behavioural surface the project commits to is the cartesian
 product of tone × strictness × schema. That is the contract for

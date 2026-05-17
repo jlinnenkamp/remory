@@ -82,9 +82,9 @@ ADR.
   call. Rejected on two grounds: it solves the wrong problem
   (extraction is already structured per section by the extractor; the
   merge step's locality is the architectural property under discussion)
-  and it introduces a vector-database dependency that v0.1 deliberately
-  excludes (see the "What v0.1 excludes" list in
-  `docs/architecture.md`). Vector recall is a different product;
+  and it introduces a vector-database dependency v0.1 excludes (see
+  "What v0.1 doesn't do" in `docs/architecture.md`). Vector recall is
+  a different product;
   pulling it in to "improve" merge would launder a v0.3-territory
   dependency into v0.1 to fix a problem that section-isolated merging
   already solves.

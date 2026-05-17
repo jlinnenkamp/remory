@@ -11,7 +11,7 @@ Remory is a terminal-based personal-assistant harness on top of Claude Code that
 
 Long-running conversations with an LLM degrade in a particular way: the model weights the most recent turn highest and the oldest turns lowest, so its picture of you drifts toward whatever you said this week. Tools that paper over this with vector search and summarization rarely surface the drift; they just give the drift a new shape. If you have ever mentioned something offhand to a chatbot and watched it quietly overwrite a fact you established months ago, you have met the recency-bias problem.
 
-Remory's answer is to keep the conversation and the memory in separate files, and to consolidate one into the other on a deliberate schedule the user controls. Each topic, for example a job search, a workout plan, a coaching thread, has a `state.md` file you can read in any editor. A `sleep` cycle takes new conversation transcripts and folds them into that file one section at a time, with each section's update isolated from the others so the model cannot drift from "skills" into "values" mid-thought. The user is always one `cat state.md` away from seeing exactly what Remory thinks it knows.
+Remory's answer is to keep the conversation and the memory in separate files, and to consolidate one into the other on a schedule the user controls. Each topic, for example a job search, a workout plan, a coaching thread, has a `state.md` file you can read in any editor. A `sleep` cycle takes new conversation transcripts and folds them into that file one section at a time, with each section's update isolated from the others so the model cannot drift from "skills" into "values" mid-thought. The user is always one `cat state.md` away from seeing exactly what Remory thinks it knows.
 
 ## Quickstart
 
@@ -39,7 +39,7 @@ Your data lives in `$XDG_DATA_HOME/remory/` (typically `~/.local/share/remory/` 
 
 Remory is a local-first tool. There is no Remory server, no account, no telemetry, no crash reporting, no analytics. The project does not phone home in any form, opt-in or otherwise. This is an architectural property, not a setting.
 
-**Where your data lives:** all conversation transcripts, consolidated `state.md` files, and per-topic metadata live in `$XDG_DATA_HOME/remory/` on your machine. Configuration lives in `$XDG_CONFIG_HOME/remory/`. Logs live in `$XDG_STATE_HOME/remory/logs/`. None of these directories is ever inside the Remory source repo. You can delete the data directory at any time and Remory will start over the next time you run `remory init`. Raw conversation transcripts under `topics/<name>/raw/<year>/` are retained indefinitely — sleep marks them consolidated and leaves them on disk so the evidence log can keep pointing at them. The boundary between "your data" and "the Remory source tree" is enforced by a startup check; see [ADR-0012](docs/adr/0012-data-dir-outside-repo.md).
+**Where your data lives:** all conversation transcripts, consolidated `state.md` files, and per-topic metadata live in `$XDG_DATA_HOME/remory/` on your machine. Configuration lives in `$XDG_CONFIG_HOME/remory/`. Logs live in `$XDG_STATE_HOME/remory/logs/`. None of these directories is ever inside the Remory source repo. You can delete the data directory at any time and Remory will start over the next time you run `remory init`. Raw conversation transcripts under `topics/<name>/raw/<year>/` are retained indefinitely; sleep marks them consolidated and leaves them on disk so the evidence log can keep pointing at them. The boundary between your data and the source tree is enforced by a startup check — see [ADR-0012](docs/adr/0012-data-dir-outside-repo.md).
 
 **What Anthropic sees:** Remory drives the official `claude` CLI as a subprocess. Anything you type during `remory chat`, plus the bundled prompts Remory sends during `remory sleep`, is transmitted to Anthropic exactly as it would be if you used `claude` directly. Remory does not add a middleman; it does not log your prompts to any third party. The privacy posture of `remory chat` is identical to the privacy posture of `claude` itself, governed by [Anthropic's usage policies](https://www.anthropic.com/legal/aup).
 
@@ -57,7 +57,7 @@ logs/
 
 Track `state.md`, `meta.yaml`, the per-topic `CLAUDE.md`, and the `.claude/` runtime — those define how your brain behaves, and `remory init` regenerating them on a fresh clone would erase any local customizations you made.
 
-We strongly recommend such a repo is **private**. `state.md` files contain a frank, distilled picture of you.
+Keep such a repo **private**. `state.md` files contain a frank, distilled picture of you.
 
 ## Architecture
 
