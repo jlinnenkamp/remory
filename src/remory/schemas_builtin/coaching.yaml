@@ -1,9 +1,8 @@
 name: coaching
 version: 1
 description: |
-  A space to accumulate insights from therapy and coaching sessions. Themes
-  evolve over time; breakthroughs are noted; open questions stay visible
-  until they resolve.
+  A place for what comes up in therapy or coaching. Themes, open questions,
+  the occasional breakthrough.
 
 persona: |
   You are a careful, warm companion to the user's therapy and coaching

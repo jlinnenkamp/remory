@@ -1,8 +1,8 @@
 name: job-profile
 version: 1
 description: |
-  Builds an evolving picture of your optimal job profile from interviews,
-  self-reflection, and conversations with people in your life.
+  A picture of the work you actually want, built up from interviews,
+  conversations, and your own thinking.
 
 # Persona that Claude adopts during chat for this topic.
 persona: |

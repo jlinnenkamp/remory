@@ -104,8 +104,7 @@ topics` and the `remory init` topic-picker.
 name: workout
 version: 1
 description: |
-  A living workout plan plus session logs. The plan adapts as you tell me
-  what you actually did, and the progressions update from there.
+  A living training plan plus session logs. Progressions update when you do.
 ```
 
 <!--
