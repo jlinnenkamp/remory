@@ -20,6 +20,9 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+# Windows alternate-data-stream metadata that WSL2 surfaces as a
+# sibling file when copying from Windows filesystems.
+*:Zone.Identifier
 
 # User data — should NEVER live in the repo
 data/
