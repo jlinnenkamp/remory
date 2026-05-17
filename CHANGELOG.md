@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `remory doctor` now colours each status glyph when stdout is a TTY:
+  `OK` in green, `WARN` in yellow, `FAIL` in red. `SKIP` and `INFO`
+  stay uncoloured so the eye lands on rows that need attention.
+  `NO_COLOR`, `ui.colour = "never"`, and non-TTY output all suppress
+  the colour as before.
+
 ## [0.1.0] - 2026-05-16
 
 First public release. Local-first, terminal-based personal-assistant

@@ -162,9 +162,22 @@ _GLYPH_ASCII: dict[CheckStatus, str] = {
     CheckStatus.INFO: "info",
 }
 
+# ANSI escapes for the colored statuses. SKIP and INFO stay uncolored so
+# the eye lands on the rows that need attention.
+_ANSI_RESET = "\033[0m"
+_ANSI_COLOR: dict[CheckStatus, str] = {
+    CheckStatus.OK: "\033[32m",  # green
+    CheckStatus.WARN: "\033[33m",  # yellow
+    CheckStatus.FAIL: "\033[31m",  # red
+}
+
 
 def _glyph(status: CheckStatus, *, color: bool) -> str:
-    return _GLYPH_TTY[status] if color else _GLYPH_ASCII[status]
+    if not color:
+        return _GLYPH_ASCII[status]
+    glyph = _GLYPH_TTY[status]
+    ansi = _ANSI_COLOR.get(status)
+    return f"{ansi}{glyph}{_ANSI_RESET}" if ansi is not None else glyph
 
 
 def render_doctor_report(

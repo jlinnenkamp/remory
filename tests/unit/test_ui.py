@@ -108,6 +108,41 @@ def test_render_doctor_report_uses_lowercase_glyphs_when_color_false() -> None:
     assert "OK ✓" not in out
 
 
+def test_render_doctor_report_wraps_ok_in_ansi_green_when_color_true() -> None:
+    rows = [
+        CheckResult(id="a", status=CheckStatus.OK, label="a", detail="d"),
+    ]
+    out = render_doctor_report(results=rows, color=True)
+    assert "\033[32mOK   \033[0m" in out
+
+
+def test_render_doctor_report_wraps_fail_in_ansi_red_when_color_true() -> None:
+    rows = [
+        CheckResult(id="a", status=CheckStatus.FAIL, label="a", detail="d"),
+    ]
+    out = render_doctor_report(results=rows, color=True)
+    assert "\033[31mFAIL \033[0m" in out
+
+
+def test_render_doctor_report_wraps_warn_in_ansi_yellow_when_color_true() -> None:
+    rows = [
+        CheckResult(id="a", status=CheckStatus.WARN, label="a", detail="d"),
+    ]
+    out = render_doctor_report(results=rows, color=True)
+    assert "\033[33mWARN \033[0m" in out
+
+
+def test_render_doctor_report_leaves_skip_and_info_uncolored_when_color_true() -> None:
+    rows = [
+        CheckResult(id="a", status=CheckStatus.SKIP, label="a", detail="d"),
+        CheckResult(id="b", status=CheckStatus.INFO, label="b", detail="d"),
+    ]
+    out = render_doctor_report(results=rows, color=True)
+    assert "SKIP " in out
+    assert "INFO " in out
+    assert "\033[" not in out  # no ANSI escapes at all for these statuses
+
+
 # ---------------------------------------------------------------------------
 # R4 — locked sleep-output critique-skip note
 # ---------------------------------------------------------------------------
